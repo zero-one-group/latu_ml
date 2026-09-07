@@ -3,9 +3,19 @@
 `latu_ml` follows [Semantic Versioning](https://semver.org). Before 1.0, a minor version may
 rename or remove; each such change is listed here with the migration in one line.
 
-## Unreleased
+## 0.1.0 — 2026-09-07
 
-Nothing released yet.
+First release, against Spark **4.2.0**, and a companion to `latu ~> 0.3`.
+
+Spark MLlib from Elixir over Spark Connect: `fit`, `transform`, `evaluate`, model and summary
+attributes, `save`/`load` in Spark's own on-disk format, the model cache and its bracket, the
+`ConnectHelper` route, pipelines and grid search. The operator surface is **generated** — 111
+rows carrying 991 params, extracted from PySpark's own classes and the server's own
+`ALLOWED_ATTRIBUTES` rather than transcribed — giving 68 constructors and 623 accessors across
+64 model and summary modules. All 66 runnable operators have been run against a live server.
+
+Every place the API departs from `pyspark.ml` is in `docs/deviations.md`, with why. What
+follows is what each milestone added, oldest last.
 
 `Latu.ML.Functions.vector_to_array/2` and `array_to_vector/1`: the way to read a `Vector`
 column, which `Latu.collect/2` refuses. Spark keeps both in an *internal* function registry
@@ -58,5 +68,3 @@ guides. `usage-rules.md` ships for agents in the `usage_rules` convention, and
 `test/latu/cheatsheet_test.exs` failing on either kind of drift. The README gained an install
 section, a server to point at and links to all of it; `CONTRIBUTING.md` carries the extractors,
 the oracle, the probe and the release checklist.
-
-Next: the 0.1.0 release.
