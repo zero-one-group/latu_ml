@@ -1,0 +1,70 @@
+# One job, secret-free, and Latu's shape with two steps removed: there are no data fixtures to
+# build here and no oracle to run, because the goldens are committed under `test/wire/`. Every
+# command is one a contributor runs locally — the workflow adds caching and ordering, nothing
+# else. `mix check.all` is a superset of `mix check` (CONTRIBUTING.md), so there is no cheap
+# tier to split off.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# No MIX_ENV: `mix check.all` sets its own (mix.exs `preferred_envs`), and the `mix docs` it
+# ends with re-enters dev, where ex_doc lives. Each step runs in the env it would locally.
+
+jobs:
+  ci:
+    name: mix check.all
+    runs-on: ubuntu-24.04
+    # The suite is seconds; the two Spark cold starts and the guides are not. The guides fit
+    # thirteen models between them under a 300 s module timeout, on four cores rather than ten.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      # Start the JVMs first and come back for them: the cold starts overlap with the BEAM
+      # setup below instead of following it. Both containers, fresh per run — the reattach
+      # server holds abandoned executions by design, so nothing is reused across runs.
+      - run: docker compose up -d
+
+      # Elixir/OTP come from .tool-versions — one home for the pin, shared with asdf/mise
+      # locally. CI is the only place the 1.20 type checker runs besides the maintainer's
+      # machine, so the pin is exact.
+      - uses: erlef/setup-beam@v1
+        with:
+          version-file: .tool-versions
+          version-type: strict
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}
+          restore-keys: mix-${{ runner.os }}-
+
+      - run: mix local.hex --force && mix local.rebar --force
+      - run: mix deps.get --check-locked
+
+      # The backstop for the incremental compiler: `_build` is restored from cache, and
+      # `warnings_as_errors` only holds for files the compiler actually touches.
+      - run: MIX_ENV=test mix compile --force
+
+      # Returns once both healthchecks pass (docker-compose.yml), or fails when one gives up.
+      - run: docker compose up -d --wait
+
+      # Ends with `mix docs --warnings-as-errors`, which is where a hidden module named in
+      # prose or a broken extra link turns up.
+      - run: mix check.all
+
+      - name: Spark logs
+        if: failure()
+        run: docker compose logs --no-color --tail=200

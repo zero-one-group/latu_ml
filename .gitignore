@@ -1,0 +1,37 @@
+.DS_Store
+Claude outputs
+
+# The directory Mix will write compiled artifacts to.
+/_build/
+
+# If you run "mix test --cover", coverage assets end up here.
+/cover/
+
+# The directory Mix downloads your dependencies sources to.
+/deps/
+
+# Where third-party dependencies like ExDoc output generated docs.
+/doc/
+
+# Temporary files, for example, from tests.
+/tmp/
+
+# If the VM crashes, it generates a dump, let's ignore it too.
+erl_crash.dump
+
+# Also ignore archive artifacts (built via "mix archive.build").
+*.ez
+
+# Ignore package tarball (built via "mix hex.build").
+latu_ml-*.tar
+
+
+# --- Latu ML ------------------------------------------------------------
+# ElixirLS workspace cache. 141 MB of build artefacts on a warm checkout, and Latu's .gitignore
+# has had this since M13 — this one did not, which is worth knowing before any `git add -A`.
+/.elixir_ls/
+
+# dev/ tooling: the oracle's python venv, and the third-party probe's downloaded jars
+/dev/.venv/
+/dev/jars/
+/spark-warehouse/

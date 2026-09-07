@@ -1,0 +1,78 @@
+# The servers this package's suite talks to. Latu has its own, on the same ports, carrying confs
+# only Latu's tests use — a checkpoint directory, a 100 ms progress interval, a `fixtures/` bind
+# mount. The two files are **alternatives, not companions**: same ports, so bring up one repo's
+# servers at a time. Container names differ so that `docker ps` says which.
+#
+#     docker compose up -d --wait     # returns when both gRPC ports are listening
+#     docker compose down
+#
+# `mix check` needs neither. `mix check.all` needs spark-reattach; the probes and
+# `dev/example.exs` default to spark-connect. Third-party operators are a third file,
+# dev/docker-compose.ext.yml.
+services:
+  spark-connect:
+    image: apache/spark:4.2.0
+    container_name: latu-ml-spark-connect
+    ports:
+      - "15002:15002"
+      - "4040:4040"
+    entrypoint: ["/opt/spark/sbin/start-connect-server.sh"]
+    command:
+      - "--wait"
+      # One task slot, as in Latu: this suite is many small queries and a fit is JVM-bound, not
+      # parallelism-bound. Latu measured it; nothing here argues with the measurement.
+      - "--master"
+      - "local[1]"
+      - "--conf"
+      - "spark.connect.grpc.binding.address=0.0.0.0"
+      - "--conf"
+      - "spark.connect.grpc.binding.port=15002"
+      - "--conf"
+      - "spark.sql.session.timeZone=UTC"
+      - "--conf"
+      - "spark.sql.shuffle.partitions=4"
+      - "--conf"
+      - "spark.ui.port=4040"
+    # `up -d --wait` returns when this passes. Without it "up" means the JVM exists, not that
+    # the gRPC port is listening, and the first test connects into nothing.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/15002"]
+      interval: 5s
+      timeout: 3s
+      retries: 36
+      start_period: 15s
+
+  # What the integration suite and the guides use. The short `senderMaxStreamDuration` is why
+  # it is worth having: a fit outlives the stream that carries it, so every ML command in the
+  # suite goes through a reattach rather than only the ones a test writes for it.
+  spark-reattach:
+    image: apache/spark:4.2.0
+    container_name: latu-ml-spark-reattach
+    ports:
+      - "15003:15002"
+      - "4041:4040"
+    entrypoint: ["/opt/spark/sbin/start-connect-server.sh"]
+    command:
+      - "--wait"
+      - "--conf"
+      - "spark.connect.grpc.binding.address=0.0.0.0"
+      - "--conf"
+      - "spark.connect.grpc.binding.port=15002"
+      - "--conf"
+      - "spark.connect.execute.reattachable.senderMaxStreamDuration=5s"
+      - "--conf"
+      - "spark.connect.execute.reattachable.senderMaxStreamSize=1m"
+      - "--conf"
+      - "spark.connect.execute.reattachable.observerRetryBufferSize=10m"
+      - "--conf"
+      - "spark.sql.session.timeZone=UTC"
+      - "--conf"
+      - "spark.sql.shuffle.partitions=4"
+      - "--conf"
+      - "spark.ui.port=4040"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/15002"]
+      interval: 5s
+      timeout: 3s
+      retries: 36
+      start_period: 15s

@@ -1,0 +1,182 @@
+# Cheatsheet
+
+Every hand-written verb in the package on one page. **`+ !`** marks one with a raising twin of
+the same arity; an arity list like `/2,3` means a trailing keyword list or an optional argument.
+
+The **generated** surface is not here and never will be: 68 constructors and 623 accessors are
+a reference, not a cheatsheet, and the registry is already that page —
+`Latu.ML.operators/1`, `Latu.ML.params/1` and `Latu.ML.attributes/1` answer it without a server,
+and `h` on any of them prints Spark's own prose.
+
+`test/latu/cheatsheet_test.exs` fails if a verb below stops existing or a new one is not here.
+
+## The verbs
+
+Called qualified, the way `Latu` is.
+
+### Fitting and applying
+
+| | |
+| --- | --- |
+| `Latu.ML.fit/2` | Fit an estimator, a pipeline or a search. **An action.** **+ !** |
+| `Latu.ML.transform/2` | Apply a transformer or a fitted model. **Lazy** — a `Latu.DataFrame`. |
+| `Latu.ML.evaluate/2` | Score a frame with an evaluator, answering with one number. **+ !** |
+| `Latu.ML.with_model/3` | Fit, use, delete in an `after`. The bracket. **+ !** |
+| `Latu.ML.pipeline/1` | Build a pipeline from a list of stages. |
+
+### Reading a model
+
+| | |
+| --- | --- |
+| `Latu.ML.attribute/2,3` | One allowlisted attribute as a value. **An action.** **+ !** |
+| `Latu.ML.attribute_frame/2,3` | One that answers with a DataFrame. **Lazy.** |
+| `Latu.ML.summary/1` | The training summary object. **Lazy**; raises for a class that has none. |
+| `Latu.ML.attributes/1` | What a model, summary or class may be asked for. |
+
+Prefer the generated accessor — `Latu.ML.Regression.LinearRegressionModel.coefficients/1` — which
+carries the class, the wire name and Spark's docs, and checks the class before the round trip.
+
+### The cache
+
+| | |
+| --- | --- |
+| `Latu.ML.delete/1` | Release one model, or a mixed list of them, in one `Delete`. **+ !** |
+| `Latu.ML.model_size/1` | What one entry costs, in bytes. **+ !** |
+| `Latu.ML.cache_info/1` | Every entry this session holds. **+ !** |
+| `Latu.ML.clean_cache/1` | Empty it, answering with how many it freed. **+ !** |
+
+### Persistence
+
+| | |
+| --- | --- |
+| `Latu.ML.save/2,3` | Write to a path **on the server**, in Spark's own format. **+ !** |
+| `Latu.ML.load/3,4` | Read one back. Names the class rather than discovering it. **+ !** |
+
+### Tuning
+
+| | |
+| --- | --- |
+| `Latu.ML.param_grid/1,2` | A grid as data; each entry carries the uid it sets. |
+| `Latu.ML.cross_validator/1` | K-fold search. Needs `:estimator`, `:param_maps`, `:evaluator`. |
+| `Latu.ML.train_validation_split/1` | The same with one split. |
+| `Latu.ML.best_index/1` | Which param map won. |
+| `Latu.ML.larger_better?/1` | Whether an evaluator's metric is an argmax. Pure. |
+
+### The registry
+
+| | |
+| --- | --- |
+| `Latu.ML.operators/0,1` | Every operator; filter on `kind:`, `group:`, `status:`. |
+| `Latu.ML.operator/1` | One by name; a miss lists the near spellings. **+ !** |
+| `Latu.ML.params/1` | An operator's param table, with types and defaults. |
+| `Latu.ML.helpers/0` | Every `ConnectHelper` method the server exposes. |
+
+### Errors
+
+| | |
+| --- | --- |
+| `Latu.ML.error_kind/1` | A `CONNECT_ML` error class as an atom, or nil. |
+| `Latu.ML.hint/1` | That kind as a sentence naming the fix. |
+
+### The helper object
+
+Neither fitted nor applied: one method on the server's own helper, with every argument sent
+positionally.
+
+| | |
+| --- | --- |
+| `Latu.ML.Stat.chi_square_test/3,4` | Pearson's independence test. **Lazy.** |
+| `Latu.ML.Stat.correlation/2,3` | A correlation matrix over a `Vector` column. **Lazy.** |
+| `Latu.ML.Stat.kolmogorov_smirnov_test/4` | One-sample two-sided KS test. **Lazy.** |
+| `Latu.ML.assign_clusters/2` | `PowerIterationClustering`'s only verb. **Lazy.** |
+| `Latu.ML.find_frequent_sequential_patterns/2` | `PrefixSpan`'s only verb. **Lazy.** |
+| `Latu.ML.Feature.load_default_stop_words/2` | Spark's stop-word list for a language. **+ !** |
+| `Latu.ML.Feature.default_locale/1` | The server's default locale, `StringIndexer`'s. **+ !** |
+| `Latu.ML.helper/2,3` | The generic call underneath all of them. **+ !** |
+| `Latu.ML.helper_frame/2` | The same where the answer is a frame. |
+
+### Columns and tensors
+
+| | |
+| --- | --- |
+| `Latu.ML.Functions.vector_to_array/1,2` | A `Vector` column as `array<double>`, server-side. |
+| `Latu.ML.Functions.array_to_vector/1` | The other way. |
+| `Latu.ML.Functions.dtypes/0` | The two dtypes `vector_to_array` takes. |
+| `Latu.ML.SparseVector.to_dense/1` | A sparse vector as an `Nx.Tensor`, when you say so. |
+| `Latu.ML.Linalg.from_udt/1` | A UDT literal as a tensor or a sparse vector. **+ !** |
+| `Latu.ML.Linalg.to_literal/1` | A tensor or sparse vector as a UDT literal. |
+
+## The shapes
+
+### What a verb returns
+
+| Shape | Looks like | Reaches the server |
+| --- | --- | --- |
+| Builder | a struct — `Latu.ML.Estimator`, `Latu.ML.Pipeline` | no |
+| Relation builder | a `Latu.DataFrame` | no |
+| Action | `{:ok, term}` / `{:error, %Latu.Error{}}` | yes |
+
+### What a fetch answers with
+
+| `returns` | Verb | Value |
+| --- | --- | --- |
+| `:value` | `Latu.ML.attribute/2` | a number, string, list, tensor or `Latu.ML.SparseVector` |
+| `:frame` | `Latu.ML.attribute_frame/2` | a lazy `Latu.DataFrame` |
+| `:summary` | `Latu.ML.summary/1` | another cached object |
+| `:operators` | `Latu.ML.attribute/2` | models — **one cache entry each** |
+
+## Operators
+
+### The seven groups
+
+| Module | What is in it |
+| --- | --- |
+| `Latu.ML.Classification` | 8 estimators, 8 model classes |
+| `Latu.ML.Regression` | 8 estimators, 8 model classes |
+| `Latu.ML.Clustering` | 4 estimators, 6 model classes, `PowerIterationClustering` |
+| `Latu.ML.Feature` | 20 estimators, 19 model classes, 18 transformers |
+| `Latu.ML.Evaluation` | 6 evaluators |
+| `Latu.ML.FPM` | `FPGrowth` and its model, `PrefixSpan` |
+| `Latu.ML.Recommendation` | `ALS` and its model |
+
+### Status, on every constructor's doc
+
+| | |
+| --- | --- |
+| `:probed` | A live server ran it, and every allowlisted attribute answered. |
+| `:built` | Generated from PySpark's param table, not yet exercised. |
+| `:missing` | PySpark names it; the server does not load it. |
+
+## Gotchas
+{: .col-2}
+
+### A `Vector` column will not collect
+
+`Latu.collect/2` refuses it — Spark says "UDT" and declines to say what it serialises as. Use
+`Latu.to_nx/2` for a tensor, `Latu.ML.Functions.vector_to_array/2` for a frame, or `select` it
+away.
+
+### Nothing releases a model for you
+
+The BEAM has no finalizer. `Latu.ML.with_model/3`, or `Latu.ML.fit/2` and `Latu.ML.delete/1`.
+`Latu.ML.load/4` and a `trees` accessor spend cache too.
+
+### Match `error_class`, not the message
+
+`CONNECT_ML.CACHE_INVALID`'s text describes the wrong object and blames the wrong cause.
+`Latu.ML.error_kind/1` is the atom.
+
+### A search needs a seed
+
+Folds are cut with `rand(seed)`. Without `seed:` the draw differs between runs and the search
+is not repeatable.
+
+### A loaded model has no summary
+
+It never saw the data, so there is nothing to rebuild one from. `Latu.ML.hint/1` names both
+ways of arriving there.
+
+### Defaults are documented, never sent
+
+A param you did not set and a param sent with its default are different requests. Kind is
+refused here; range is Spark's to refuse.
