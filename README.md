@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/latu-ml-lockup-dark.svg">
-    <img alt="Latu ML" src="assets/latu-ml-lockup.svg" width="420">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/zero-one-group/latu_ml/main/assets/latu-ml-lockup-dark.svg">
+    <img alt="Latu ML" src="https://raw.githubusercontent.com/zero-one-group/latu_ml/main/assets/latu-ml-lockup.svg" width="420">
   </picture>
 </p>
 
@@ -22,9 +22,8 @@ def deps do
 end
 ```
 
-**0.1.0 is not on Hex yet.** The snippet is the shape it will take; until it is published the
-package is a path or git dependency. Requires Elixir ~> 1.20 and a Spark **4.2.0** Connect
-server, the same one Latu targets.
+Requires Elixir ~> 1.20 and a Spark **4.2.0** Connect server — the same one Latu targets, and
+the only one either package claims.
 
 ## A server to talk to
 
@@ -72,9 +71,10 @@ Four things are happening there, and three of them are the whole package. `ML.tr
 server-side cache rather than a value. And `ML.with_model/3` deletes that reference in an
 `after`, because the BEAM has no finalizer to do it for you.
 
-This page shows the shape of the API. The [quick start](docs/guides/quick-start.md) shows
-results, and every line of it is executed by the test suite — which is why the numbers there
-can be trusted and the ones in a README cannot.
+This page shows the shape of the API. The
+[quick start](https://hexdocs.pm/latu_ml/quick-start.html) shows results, and every line of it
+is executed by the test suite — which is why the numbers there can be trusted and the ones in a
+README cannot.
 
 ## What is in it
 
@@ -133,34 +133,39 @@ Remote MLlib, not a local one. Two things are load-bearing:
 `Scholar` runs classical ML on one node, in memory, and hands you a model you can inspect and
 ship. This runs MLlib on a cluster and hands you a reference. Reach for Scholar when the
 training set fits a node; reach for this when it does not, or when the features already live in
-a lakehouse. [With Nx and Scholar](docs/guides/with-scholar-and-nx.md) is that seam, measured.
+a lakehouse. [With Nx and Scholar](https://hexdocs.pm/latu_ml/with-scholar-and-nx.html) is
+that seam, measured.
 
 ## Status
 
-**Pre-release, and moving.** All 66 runnable operators are `:probed` — fitted, applied or
-evaluated against a live 4.2.0 server, with every allowlisted attribute answered — and so are
-the eleven `ConnectHelper` methods. No operator is `:missing`. Six saved directories cross over
-between PySpark and this package in both directions. What is left before 0.1.0 is publishing,
-not code.
+**0.1.0, and pre-1.0 in the way that matters**: a minor version may rename or remove, and
+`CHANGELOG.md` carries the migration in one line when it does.
+
+All 66 runnable operators are `:probed` — fitted, applied or evaluated against a live 4.2.0
+server, with every allowlisted attribute answered — and so are the eleven `ConnectHelper`
+methods. No operator is `:missing`. Six saved directories cross over between PySpark and this
+package in both directions.
 
 ## Where to go next
 
-  * [Quick start](docs/guides/quick-start.md) — connect, fit, read, score, release; every line
-    of it executed
-  * [Cookbook](docs/guides/cookbook.md) — a recipe per model family, and the ones for pipelines,
-    grid search and cleaning up after yourself
-  * [Coming from PySpark ML](docs/guides/from-pyspark-ml.md) — the five differences that matter,
-    and what a model *is* here
-  * [With Nx and Scholar](docs/guides/with-scholar-and-nx.md) — getting numbers back onto the
-    BEAM, where that is worth it, and where it stops working
-  * [`docs/cheatsheet.cheatmd`](docs/cheatsheet.cheatmd) — every verb on one page
-  * [`usage-rules.md`](usage-rules.md) — the short set of rules that are not guessable from the
-    function names, in the [`usage_rules`](https://github.com/ash-project/usage_rules)
-    convention, so an agent can sync it into its context
-  * [`docs/deviations.md`](docs/deviations.md) — every place the API departs from `pyspark.ml`,
-    and why
-  * [`CONTRIBUTING.md`](CONTRIBUTING.md) — the servers, the two extractors, the oracle and the
-    probe
+  * [Quick start](https://hexdocs.pm/latu_ml/quick-start.html)
+    — connect, fit, read, score, release; every line of it executed
+  * [Cookbook](https://hexdocs.pm/latu_ml/cookbook.html)
+    — a recipe per model family, and the ones for pipelines, grid search and cleaning up
+  * [Coming from PySpark ML](https://hexdocs.pm/latu_ml/from-pyspark-ml.html)
+    — the five differences that matter, and what a model *is* here
+  * [With Nx and Scholar](https://hexdocs.pm/latu_ml/with-scholar-and-nx.html)
+    — getting numbers back onto the BEAM, where that is worth it, and where it stops working
+  * [`docs/cheatsheet.cheatmd`](https://hexdocs.pm/latu_ml/cheatsheet.html)
+    — every verb on one page
+  * [`usage-rules.md`](https://hexdocs.pm/latu_ml/usage-rules.html)
+    — the short set of rules that are not guessable from the function names, in the
+    [`usage_rules`](https://github.com/ash-project/usage_rules) convention, so an agent can sync
+    it into its context
+  * [`docs/deviations.md`](https://hexdocs.pm/latu_ml/deviations.html)
+    — every place the API departs from `pyspark.ml`, and why
+  * [`CONTRIBUTING.md`](https://hexdocs.pm/latu_ml/contributing.html)
+    — the servers, the two extractors, the oracle and the probe
 
 Latu's own [docs](https://hexdocs.pm/latu) cover the DataFrame API this is built on; its
 [usage rules](https://hexdocs.pm/latu/usage-rules.html) are worth having in context alongside
