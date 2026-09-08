@@ -19,7 +19,7 @@ MLlib is DataFrame in, DataFrame out. There is no `fit(x, y)` on tensors: featur
 ```elixir
 def deps do
   [
-    {:latu, "~> 0.3"},
+    {:latu, "~> 0.4"},
     {:latu_ml, "~> 0.1"}
   ]
 end

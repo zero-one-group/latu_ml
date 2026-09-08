@@ -3,6 +3,13 @@
 `latu_ml` follows [Semantic Versioning](https://semver.org). Before 1.0, a minor version may
 rename or remove; each such change is listed here with the migration in one line.
 
+## Unreleased
+
+**The `latu` requirement is now `~> 0.4`**, tightened from `~> 0.3`. Nothing here needs a
+Latu 0.4 feature; the old constraint resolved any Latu below 1.0, and Latu's own changelog
+says a minor version may rename or remove, so it permitted a Latu release that broke this
+package silently. Bump `latu` alongside `latu_ml`.
+
 ## 0.1.0 — 2026-09-07
 
 First release, against Spark **4.2.0**, and a companion to `latu ~> 0.3`.

@@ -38,7 +38,7 @@ defmodule Latu.ML.MixProject do
 
   defp deps do
     [
-      {:latu, "~> 0.3"},
+      {:latu, "~> 0.4"},
       # Hard, not optional: a fitted model's attributes come back as tensors and there is no
       # useful surface here without them. Roadmap section 6.
       {:nx, "~> 0.13"},
