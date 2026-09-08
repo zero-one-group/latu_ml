@@ -51,6 +51,7 @@ defmodule Latu.ML.MixProject do
       licenses: ["Apache-2.0"],
       links: %{
         "GitHub" => @source_url,
+        "Changelog" => "https://hexdocs.pm/latu_ml/changelog.html",
         "Latu" => "https://hexdocs.pm/latu",
         "MLlib" => "https://spark.apache.org/docs/latest/ml-guide.html"
       },

@@ -5,8 +5,8 @@ onto the BEAM, where `Nx`, `Scholar` and `defn` live.
 
 Three things can cross, and they are not equally easy. **Features** come back as tensors.
 **Fitted parameters** come back as tensors, and for some model families that is the whole model.
-**The model itself** does not cross at all — and knowing which family you are in is most of what
-this page is for.
+**The model itself** does not cross at all. Knowing which family you are in is most of what this
+page is for.
 
 Every fence below runs against a live server as part of the test suite.
 
@@ -33,17 +33,16 @@ features = ML.transform(assembler, training)
 
 ## Features out
 
-A `features` column is a `Vector`, and a Vector column is the one thing in Spark that
-`Latu.collect/2` will not give you:
+A `features` column is a `Vector`. That is the one thing in Spark that `Latu.collect/2` will not
+give you:
 
 ```elixir
 {:error, refused} = Latu.collect(features)
 true = refused.message =~ "UDT that does not say its SQL type"
 ```
 
-That is not Latu being fussy. Spark describes the column as a UDT and declines to say what it
-serialises as, so the decoder has nothing to check against Polars' dtypes and refuses rather than
-risk a panic that would name neither the column nor the type. `docs/deviations.md` has the whole
+Spark describes the column as a UDT and declines to say what it serialises as. The decoder has
+nothing to check it against, so it refuses rather than guess. `docs/deviations.md` has the whole
 of it.
 
 `Latu.to_nx/2` reads the Arrow bytes directly, where the type *is* stated, and hands back one
@@ -57,22 +56,7 @@ of it.
 [1.0, 1.0, 2.0, 2.0] = rows |> Nx.slice([0, 0], [2, 2]) |> Nx.to_flat_list()
 ```
 
-For a **single** batch this costs no copy: the Arrow buffer *is* the tensor's binary. Two things
-qualify that. Ask for a subset with `columns:` and it copies, deliberately — an Arrow buffer is a
-slice of the whole batch and holds it alive, so pruning without copying would keep every column
-you asked to drop. And a result that arrives in several batches is concatenated into one buffer
-per column, so the blobs and the tensor are both live: measured at 100 MB of doubles, that is
-about twice the payload in BEAM binary (`dev/probe_nx_copies.exs` in Latu).
-
-**On a plain numeric column that makes `to_nx/2` a convenience, not a saving** — the same probe
-put it within a few percent of `to_explorer/2` plus `Explorer.Series.to_tensor/1` on wall time,
-and slightly *above* it on peak memory. Reach for it there because a tensor is what you wanted,
-not because it is cheaper.
-
-**On a `Vector` column it is a different regime.** At 100 MB of payload the routes that existed
-before it peaked at 1682 MB and 1979 MB of BEAM against `to_nx/2`'s 135 MB — twelve to fifteen
-times — and took about twice as long. Both of them materialise every row as a list of boxed
-floats before `Nx.tensor/1` walks it; `to_nx/2` reads the buffer.
+For a single batch this costs no copy: the Arrow buffer *is* the tensor's binary.
 
 **When you want a DataFrame rather than a tensor**, go through Spark instead.
 `Functions.vector_to_array/2` turns the Vector into an ordinary `array<double>` server-side, and
@@ -85,19 +69,12 @@ arrays = Latu.select(features, [:label, x: Functions.vector_to_array(:features)]
 6 = Explorer.DataFrame.n_rows(frame)
 ```
 
-That costs a pass over the rows on the server, where `to_nx/2` costs none. Use it when the
-destination is Explorer; use `to_nx/2` when the destination is a tensor.
-
-The split matters more than it looks. Decoding to a *frame* this way is cheap — 119 MB at the
-100 MB size, against `to_nx/2`'s 135 MB. It is only carrying on from the frame to a tensor, row
-by row, that costs the 1682 MB above. So `vector_to_array` is the right answer for Explorer and
-the wrong one for `Nx`.
+`vector_to_array` is the right answer for Explorer and the wrong one for `Nx`.
 
 ## Parameters out
 
 For the model families where the parameters *are* the model, the fit happens on the cluster and
-the scoring happens here. A linear model is the clearest case — it is a dot product and an
-intercept.
+the scoring happens here. A linear model is the clearest case: a dot product and an intercept.
 
 ```elixir
 {:ok, model} = ML.fit(Regression.linear_regression(max_iter: 20), features)
@@ -113,7 +90,7 @@ true = is_float(intercept)
 ### The one thing to get right
 
 `Nx.tensor(2.0)` is **f32**. A bare Elixir float entering `defn` becomes an f32 tensor, and an
-f32 intercept costs about 1e-7 of precision — enough that your predictions and Spark's quietly
+f32 intercept costs about 1e-7 of precision. Enough that your predictions and Spark's quietly
 disagree in the eighth decimal. `Latu.ML.Linalg` builds the coefficients as f64, so the vector is
 already right and only the scalar bites:
 
@@ -149,7 +126,7 @@ scored = ML.transform(model, features)
 ```
 
 Then score, and compare. Both sides used the same coefficients, so a mismatch here is arithmetic
-and nothing else — which is what makes it worth asserting rather than eyeballing:
+and nothing else. Worth asserting rather than eyeballing:
 
 ```elixir
 ours = Linear.predict(x, coefficients, intercept)
@@ -158,7 +135,7 @@ ours = Linear.predict(x, coefficients, intercept)
 ```
 
 The tensors are ordinary BEAM terms, so they outlive the handle they came from. Delete the model
-and the scoring still works — that is the point of this seam:
+and the scoring still works. That is the point of this seam:
 
 ```elixir
 :ok = ML.delete(model)
@@ -175,22 +152,19 @@ train on a cluster and predict in a GenServer.
 
 ## Where this stops working
 
-It stops at models that are a *structure* rather than a set of parameters — trees above all.
+It stops at models that are a *structure* rather than a set of parameters. Trees above all.
 
-What the server's allowlist gives a fitted tree is `depth`, `num_nodes`, `total_num_nodes`,
-`num_features`, `num_classes`, `feature_importances`, `tree_weights`, `trees`, `get_num_trees`,
-the four `predict*` methods, and `to_debug_string`. **No node table, and no thresholds as data.**
-The splits cross only inside `to_debug_string`, which is a text dump with no compatibility
-promise, and the `predict*` methods are one round trip per row, so they are an inspection tool
-rather than a scoring path.
+What the server's allowlist gives a fitted tree is its shape: `depth`, `num_nodes`,
+`feature_importances`, and `to_debug_string`. **No node table, and no thresholds as data.** The
+splits cross only inside `to_debug_string`, which is a text dump with no compatibility promise.
 
-Scholar does not close the gap from its side either: it has no decision tree, random forest or
-gradient-boosted tree at all — they do not express as `defn`, and Scholar's own README points at
+Scholar does not close the gap from its side either. It has no decision tree, random forest or
+gradient-boosted tree at all. They do not express as `defn`, and Scholar's own README points at
 EXGBoost instead.
 
 So there are three honest answers for a tree, and none of them is "port the model":
 
-* **Score on the cluster** with `ML.transform/2`. Not a workaround — Spark already holds the
+* **Score on the cluster** with `ML.transform/2`. Not a workaround. Spark already holds the
   structure, and for a tree that structure is the model.
 * **`ML.save/3` and read the artefact.** Spark's on-disk format carries the node table as
   Parquet, which Explorer reads. A real route, and a project rather than an afternoon.
@@ -198,21 +172,20 @@ So there are three honest answers for a tree, and none of them is "port the mode
 
 ## Scholar, and when to reach for it instead
 
-Scholar and `latu_ml` share their verbs — `fit`, `transform` — and disagree about what a model
+Scholar and `latu_ml` share their verbs, `fit` and `transform`, and disagree about what a model
 *is*. Scholar's is a struct of tensors you can inspect, ship and pattern-match. This package's is
 a reference into a server-side cache that offloads under memory pressure and is gone when the
 session ends.
 
 Choose Scholar when the training set fits one node. Choose this when it does not, or when the
-features already live in a lakehouse and moving them would cost more than the fit. And when you
-have trained here and want to predict there, the seam above is the road: parameters out as
-tensors, scoring in `defn`.
+features already live in a lakehouse and moving them would cost more than the fit. Trained here
+and predicting there, the seam above is the road.
 
 ## What `to_nx/2` will not read
 
-A tensor has one type and one shape, so anything without both is refused by name rather than
-guessed at: nulls, strings, booleans (Arrow packs them as a bitmap rather than a byte a value),
-lists whose rows differ in length, and sparse `Vector`s.
+A tensor has one type and one shape. Anything without both is refused by name rather than guessed
+at: nulls, strings, booleans, lists whose rows differ in length, and sparse `Vector`s. Arrow packs
+booleans as a bitmap, not one byte per value.
 
 ```elixir
 strings = Latu.sql!(session, "SELECT 'a' AS s")
@@ -220,8 +193,8 @@ strings = Latu.sql!(session, "SELECT 'a' AS s")
 true = why.message =~ "column s is a string column"
 ```
 
-A sparse Vector is the one worth planning around: densify it on the server before you read it,
-because there is no one width to reshape to.
+A sparse Vector is the one worth planning around. Densify it on the server before you read it:
+there is no one width to reshape to.
 
 ```elixir
 Latu.disconnect(session, release: true)

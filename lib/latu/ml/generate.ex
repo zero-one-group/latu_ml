@@ -86,6 +86,8 @@ defmodule Latu.ML.Generate do
   # none of them by taste:
   #
   #   * `:summary` answers with another cached object, and only `evaluate` is still that shape;
+  #   * an attribute whose argument types nothing could read from PySpark, which `@reasons`
+  #     calls `:untyped`;
   #   * `toString`, for the reason `@skip` gives.
   #
   # An attribute that takes arguments is generated at `1 + length(args)`, with each argument's
