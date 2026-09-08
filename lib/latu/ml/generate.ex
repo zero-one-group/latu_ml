@@ -11,7 +11,7 @@ defmodule Latu.ML.Generate do
   #   * `accessors/1` — one module per fitted-model class in a group, with one function per
   #     name on the server's allowlist for it. Tab completion is that allowlist.
   #
-  # Why generate rather than hand-write: 66 constructors carrying 981 params, and 613
+  # Why generate rather than hand-write: 68 constructors carrying 991 params, and 623
   # accessors, is a transcription job nobody would notice going stale. Why *functions* rather
   # than a `Latu.ML.new(:logistic_regression, ...)` lookup: named functions have docs, specs
   # and tab completion, and discoverability in the REPL is the goal, not a nicety.
@@ -215,7 +215,7 @@ defmodule Latu.ML.Generate do
   # Models the server builds out of what you send
   # =============================================
 
-  # Three of the ten `ConnectHelper` methods answer with a model reference rather than a value:
+  # Three of the eleven `ConnectHelper` methods answer with a model reference, not a value:
   # a `StringIndexerModel` from a list of labels, another from arrays of them, a
   # `CountVectorizerModel` from a vocabulary. They belong on the model's own module, beside the
   # accessors, because that is the class they make — and they are generated rather than

@@ -874,7 +874,7 @@ defmodule Latu.ML.Internal do
 
   `ConnectHelper` is reached by the same `Fetch` a model attribute is, and differs in
   everything else: the object is a singleton the server resolves by name, the arguments are
-  positional, and three of the ten answer with a model the call itself built.
+  positional, and three of the eleven answer with a model the call itself built.
   """
   @spec helper_plan(map(), [term()]) :: Plan.command()
   def helper_plan(row, values) do
@@ -964,7 +964,7 @@ defmodule Latu.ML.Internal do
   What a generated `Latu.ML.Feature.StringIndexerModel.from_labels/3` and its two siblings
   call: a uid, then `Latu.ML.helper/3`.
 
-  Three of the ten helper methods build a model server-side out of what you pass. The uid is
+  Three of the eleven helper methods build a model server-side out of what you pass. The uid is
   the **client's** — the call's first declared argument — and sending it is how the model the
   server registers and the `%Latu.ML.Model{}` the caller holds agree on one; PySpark does the
   same. The generic `Latu.ML.helper/3` takes it like every other declared argument, because an

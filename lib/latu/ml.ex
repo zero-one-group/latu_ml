@@ -730,8 +730,6 @@ defmodule Latu.ML do
 
   @doc """
   Read a model attribute whose answer is a value — a coefficient, an intercept, a count.
-  @doc \"""
-  Read a model attribute whose answer is a value — a coefficient, an intercept, a count.
 
   An action. A `Vector` or `Matrix` comes back as an `Nx.Tensor`, or a
   `Latu.ML.SparseVector` where densifying would be this package's decision rather than yours.
@@ -899,7 +897,7 @@ defmodule Latu.ML do
     end
   end
 
-  # Three of the ten build a model out of what was sent and answer with its cache reference,
+  # Three of the eleven build a model out of what was sent and answer with its cache reference,
   # exactly as a fit does — so the caller owns it. The uid is the one that went out with the
   # call, which is how the server's model and this one agree on one.
   defp helper_answer(%{returns: :model} = row, session, args, execution) do
@@ -924,7 +922,7 @@ defmodule Latu.ML do
   Call a helper method whose answer is a DataFrame.
 
   A lazy builder, where `helper/3` is an action — the same split `attribute_frame/2` and
-  `attribute/2` have, and the same `Fetch` underneath. Five of the ten answer this way, and
+  `attribute/2` have, and the same `Fetch` underneath. Five of the eleven answer this way, and
   every one of them takes the frame it works on as an argument, so the session comes from
   there and there is none to pass.
 
@@ -944,8 +942,6 @@ defmodule Latu.ML do
   end
 
   @doc """
-  The training summary a fitted model carries.
-  @doc \"""
   The training summary a fitted model carries.
 
   A lazy builder: Spark has no separate cache key for a summary, so this composes the reference
@@ -1349,7 +1345,7 @@ defmodule Latu.ML do
 
     with {:ok, metadata} <- Layout.read_metadata(session, path),
          {:ok, estimator} <- load_stage(session, Layout.part_path(path, :estimator)),
-         {:ok, evaluator} <- load_stage(session, Layout.part_path(path, :evaluator)) do
+         {:ok, evaluator} <- load_evaluator(session, path, estimator) do
       params = Map.get(metadata, "paramMap", %{})
 
       names = name_of(estimator, evaluator)
@@ -1363,12 +1359,25 @@ defmodule Latu.ML do
     end
   end
 
+  # The estimator is cached by the time the evaluator is asked for — a pipeline estimator can
+  # carry a fitted stage — so a refusal here gives back what the estimator brought.
+  defp load_evaluator(session, path, estimator) do
+    case load_stage(session, Layout.part_path(path, :evaluator)) do
+      {:ok, evaluator} ->
+        {:ok, evaluator}
+
+      {:error, error} ->
+        release(collected([estimator]))
+        {:error, error}
+    end
+  end
+
   defp load_searched(session, kind, path, validator, metadata, opts) do
     with {:ok, best_model} <- load_stage(session, Layout.part_path(path, :best_model)) do
       # The winner is already cached by the time the sub-models are asked for, so a refusal
       # here — `sub_models: true` against a directory saved without them, most likely — has to
-      # give it back. Fourth place this shape appears: a `Read` caches, so every error path
-      # after one owns what it read.
+      # give it back. A `Read` caches, so every error path below one owns what it read — the
+      # others are `load_evaluator/3`, `load_stages/3`, `read_folds/4` and `read_fold/4`.
       case load_sub_models(session, kind, path, validator, metadata, opts) do
         {:ok, sub_models} ->
           {:ok, searched_from(kind, session, validator, metadata, best_model, sub_models)}
@@ -1677,6 +1686,10 @@ defmodule Latu.ML do
   end
 
   defp cached_models(%PipelineModel{stages: stages}), do: Enum.flat_map(stages, &cached_models/1)
+
+  # An *unfitted* pipeline holds cache entries too: `Latu.ML.Pipeline.stage/0` admits a model
+  # already fitted, so a pipeline loaded as a search's estimator can arrive owning one.
+  defp cached_models(%Pipeline{stages: stages}), do: Enum.flat_map(stages, &cached_models/1)
 
   defp cached_models(%CrossValidatorModel{} = model) do
     cached_models(model.best_model) ++ Enum.flat_map(model.sub_models || [], &cached_models/1)
@@ -2013,8 +2026,6 @@ defmodule Latu.ML do
   def helpers, do: Registry.helpers()
 
   @doc """
-  One operator by name, or `nil`.
-  @doc \"""
   One operator by name, or `nil`.
 
       iex> Latu.ML.operator(:standard_scaler).class
