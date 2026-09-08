@@ -243,7 +243,7 @@ defmodule Latu.ML.Registry do
   @spec helpers_of(String.t()) :: [map()]
   def helpers_of(owner) when is_binary(owner), do: Map.get(@helpers_by_owner, owner, [])
 
-  # A miss names the near ones rather than all 109: an unknown operator is nearly always a
+  # A miss names the near ones rather than all 111: an unknown operator is nearly always a
   # spelling, and a wall of names is what a caller reads past.
   defp nearest(name) do
     text = to_string(name)
