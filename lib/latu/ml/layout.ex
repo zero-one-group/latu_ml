@@ -43,35 +43,44 @@ defmodule Latu.ML.Layout do
   @stages "stages"
   @sub_models "subModels"
 
-  # What PySpark writes for each. `Latu.ML.load/4` dispatches on it and so does Scala's reader,
-  # which `require`s an exact match; PySpark 4.2's own pipeline reader ignores it entirely.
-  @classes %{
-    pipeline: "pyspark.ml.pipeline.Pipeline",
-    pipeline_model: "pyspark.ml.pipeline.PipelineModel",
-    cross_validator: "pyspark.ml.tuning.CrossValidator",
-    cross_validator_model: "pyspark.ml.tuning.CrossValidatorModel",
-    train_validation_split: "pyspark.ml.tuning.TrainValidationSplit",
-    train_validation_split_model: "pyspark.ml.tuning.TrainValidationSplitModel"
-  }
-
-  # Which of them lay out a directory of stages, and which lay out a search. Both are read by
-  # `class`, so something has to say them apart — ML5a could assume every known class here was
-  # a pipeline and no longer can.
-  @shapes %{
-    pipeline: :stages,
-    pipeline_model: :stages,
-    cross_validator: :search,
-    cross_validator_model: :search,
-    train_validation_split: :search,
-    train_validation_split_model: :search
+  # One row per meta-algorithm. Three things get asked about a kind, and three tables keyed by
+  # the same six atoms were three places to remember when a seventh arrives — only one of which
+  # would have failed the compile.
+  #
+  #   * `class` is what PySpark writes. `Latu.ML.load/4` dispatches on it and so does Scala's
+  #     reader, which `require`s an exact match; PySpark 4.2's own pipeline reader ignores it
+  #     entirely.
+  #   * `shape` is which of them lay out a directory of stages and which lay out a search. Both
+  #     are read by their class, so something has to say them apart — ML5a could assume every
+  #     known class here was a pipeline and no longer can.
+  #   * `fitted` is which of them have models in them.
+  @kinds %{
+    pipeline: %{class: "pyspark.ml.pipeline.Pipeline", shape: :stages, fitted: false},
+    pipeline_model: %{class: "pyspark.ml.pipeline.PipelineModel", shape: :stages, fitted: true},
+    cross_validator: %{class: "pyspark.ml.tuning.CrossValidator", shape: :search, fitted: false},
+    cross_validator_model: %{
+      class: "pyspark.ml.tuning.CrossValidatorModel",
+      shape: :search,
+      fitted: true
+    },
+    train_validation_split: %{
+      class: "pyspark.ml.tuning.TrainValidationSplit",
+      shape: :search,
+      fitted: false
+    },
+    train_validation_split_model: %{
+      class: "pyspark.ml.tuning.TrainValidationSplitModel",
+      shape: :search,
+      fitted: true
+    }
   }
 
   @doc "The `class` string a kind of meta-algorithm is saved under."
-  def class(kind), do: Map.fetch!(@classes, kind)
+  def class(kind), do: Map.fetch!(@kinds, kind).class
 
   @doc "Which kind a `class` string names, or nil for anything that is not one of ours."
   def kind(class) do
-    Enum.find_value(@classes, fn {kind, name} -> if name == class, do: kind end)
+    Enum.find_value(@kinds, fn {kind, %{class: name}} -> if name == class, do: kind end)
   end
 
   @doc """
@@ -81,12 +90,12 @@ defmodule Latu.ML.Layout do
   that. Two shapes, and nothing outside this module should be matching class strings to tell
   them apart.
   """
-  def shape(kind), do: Map.fetch!(@shapes, kind)
+  def shape(kind), do: Map.fetch!(@kinds, kind).shape
 
   @doc "Whether a kind is a fitted thing (it has models in it) or an unfitted one."
-  def fitted?(kind) do
-    kind in [:pipeline_model, :cross_validator_model, :train_validation_split_model]
-  end
+  # Unlike the two above, this answers for a kind the table does not name: it replaced a
+  # membership test, which said false to everything that was not in its list.
+  def fitted?(kind), do: Map.get(@kinds, kind, %{fitted: false}).fitted
 
   @doc """
   Write `<path>/metadata`.

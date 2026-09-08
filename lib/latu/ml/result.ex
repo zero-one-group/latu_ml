@@ -23,13 +23,12 @@ defmodule Latu.ML.Result do
   @spec object_ref(struct()) :: {:ok, Latu.ML.Plan.object_ref()} | {:error, Error.t()}
   def object_ref(execution)
 
-  def object_ref(%{ml_command_result: %{result_type: result_type}})
-      when elem(result_type, 0) == :operator_info do
-    case elem(result_type, 1) do
-      %{type: {:obj_ref, ref}} -> {:ok, ref.id}
-      _info -> {:error, protocol_error("a Fit answered with no object reference")}
-    end
+  def object_ref(%{ml_command_result: %{result_type: {:operator_info, %{type: {:obj_ref, ref}}}}}) do
+    {:ok, ref.id}
   end
+
+  def object_ref(%{ml_command_result: %{result_type: {:operator_info, _info}}}),
+    do: {:error, protocol_error("a Fit answered with no object reference")}
 
   def object_ref(execution), do: {:error, unexpected(execution, "an object reference")}
 
@@ -81,10 +80,7 @@ defmodule Latu.ML.Result do
   @spec operator_info(struct()) :: {:ok, operator_info()} | {:error, Error.t()}
   def operator_info(execution)
 
-  def operator_info(%{ml_command_result: %{result_type: result_type}})
-      when elem(result_type, 0) == :operator_info do
-    info = elem(result_type, 1)
-
+  def operator_info(%{ml_command_result: %{result_type: {:operator_info, info}}}) do
     with {:ok, params} <- params(info.params) do
       {:ok, %{ref: ref(info.type), name: name(info.type), uid: info.uid, params: params}}
     end
@@ -225,13 +221,11 @@ defmodule Latu.ML.Result do
   @spec operators(struct()) :: {:ok, [Latu.ML.Plan.object_ref()]} | {:error, Error.t()}
   def operators(execution)
 
-  def operators(%{ml_command_result: %{result_type: result_type}})
-      when elem(result_type, 0) == :operator_info do
-    case elem(result_type, 1) do
-      %{type: {:obj_ref, ref}} -> {:ok, String.split(ref.id, ",", trim: true)}
-      _info -> {:error, protocol_error("a list of operators answered with no object reference")}
-    end
-  end
+  def operators(%{ml_command_result: %{result_type: {:operator_info, %{type: {:obj_ref, ref}}}}}),
+    do: {:ok, String.split(ref.id, ",", trim: true)}
+
+  def operators(%{ml_command_result: %{result_type: {:operator_info, _info}}}),
+    do: {:error, protocol_error("a list of operators answered with no object reference")}
 
   def operators(execution), do: {:error, unexpected(execution, "a list of operators")}
 

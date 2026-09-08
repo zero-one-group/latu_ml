@@ -976,11 +976,16 @@ defmodule Latu.ML.Internal do
           {:ok, Model.t()} | {:error, Latu.Error.t()}
   def model_from_helper(name, session, values, opts) do
     row = Registry.helper!(name)
-    known = with %{params: params} <- Registry.operator_of_class(row.model_class), do: params
+
+    known =
+      case Registry.operator_of_class(row.model_class) do
+        %{params: params} -> params
+        nil -> []
+      end
 
     with {:ok, %Model{} = model} <-
            Latu.ML.helper(session, name, [uid(row.model_class) | values]) do
-      {:ok, %Model{model | params: params!(opts, known || [])}}
+      {:ok, %Model{model | params: params!(opts, known)}}
     end
   end
 

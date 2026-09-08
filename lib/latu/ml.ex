@@ -513,19 +513,32 @@ defmodule Latu.ML do
   # per param map, and re-deriving a filtered random draw that many times is the one avoidable
   # cost in a search. PySpark does the same, for the same reason.
   defp score_fold(validator, train, validation) do
-    with {:ok, train} <- Latu.persist(train),
-         {:ok, validation} <- Latu.persist(validation) do
-      result = score_grid(validator, train, validation)
+    case Latu.persist(train) do
+      {:ok, train} ->
+        case Latu.persist(validation) do
+          {:ok, validation} ->
+            scored(validator, train, validation)
 
-      Latu.unpersist(train)
-      Latu.unpersist(validation)
+          # A persist is a resource like any other, so the one that succeeded goes back.
+          {:error, error} ->
+            Latu.unpersist(train)
+            {:error, error, []}
+        end
 
-      case result do
-        {:ok, metrics, kept} -> {:ok, Enum.reverse(metrics), Enum.reverse(kept)}
-        other -> other
-      end
-    else
-      {:error, error} -> {:error, error, []}
+      {:error, error} ->
+        {:error, error, []}
+    end
+  end
+
+  defp scored(validator, train, validation) do
+    result = score_grid(validator, train, validation)
+
+    Latu.unpersist(train)
+    Latu.unpersist(validation)
+
+    case result do
+      {:ok, metrics, kept} -> {:ok, Enum.reverse(metrics), Enum.reverse(kept)}
+      other -> other
     end
   end
 
@@ -560,6 +573,37 @@ defmodule Latu.ML do
   end
 
   defp collected(kept), do: kept |> List.flatten() |> Enum.flat_map(&cached_models/1)
+
+  # Collect in order, or give back what was already cached and answer with the first error.
+  # A `Read` caches, so every error path below one owns what it read. That decision lives here
+  # rather than at each fold, because five copies of it is how the sixth came to forget.
+  defp traverse(items, fun) do
+    items
+    |> Enum.reduce_while({:ok, []}, fn item, {:ok, done} ->
+      case fun.(item) do
+        {:ok, value} -> {:cont, {:ok, [value | done]}}
+        {:error, error} -> {:halt, {:error, error, done}}
+      end
+    end)
+    |> case do
+      {:ok, done} ->
+        {:ok, Enum.reverse(done)}
+
+      {:error, error, done} ->
+        release(collected(done))
+        {:error, error}
+    end
+  end
+
+  # `:ok`, or the first error. Nothing is cached on this path, so nothing is given back.
+  defp each_ok(items, fun) do
+    Enum.reduce_while(items, :ok, fn item, :ok ->
+      case fun.(item) do
+        :ok -> {:cont, :ok}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+  end
 
   defp transpose([]), do: []
   defp transpose(rows), do: rows |> Enum.zip() |> Enum.map(&Tuple.to_list/1)
@@ -1221,12 +1265,7 @@ defmodule Latu.ML do
   defp save_sub_models(session, %CrossValidatorModel{} = model, path, opts) do
     model.sub_models
     |> Enum.with_index()
-    |> Enum.reduce_while(:ok, fn {fold, index}, :ok ->
-      case save_fold(session, fold, path, index, opts) do
-        :ok -> {:cont, :ok}
-        {:error, error} -> {:halt, {:error, error}}
-      end
-    end)
+    |> each_ok(fn {fold, index} -> save_fold(session, fold, path, index, opts) end)
   end
 
   defp save_sub_models(session, %TrainValidationSplitModel{} = model, path, opts) do
@@ -1236,13 +1275,8 @@ defmodule Latu.ML do
   defp save_fold(session, models, path, fold, opts) do
     models
     |> Enum.with_index()
-    |> Enum.reduce_while(:ok, fn {model, index}, :ok ->
-      where = Layout.sub_model_path(path, fold, index)
-
-      case save_stage(session, model, where, opts) do
-        :ok -> {:cont, :ok}
-        {:error, error} -> {:halt, {:error, error}}
-      end
+    |> each_ok(fn {model, index} ->
+      save_stage(session, model, Layout.sub_model_path(path, fold, index), opts)
     end)
   end
 
@@ -1257,13 +1291,9 @@ defmodule Latu.ML do
          :ok <- Layout.write_metadata(session, path, kind, uid, stage_map(stages)) do
       stages
       |> Enum.with_index()
-      |> Enum.reduce_while(:ok, fn {stage, index}, :ok ->
+      |> each_ok(fn {stage, index} ->
         where = Layout.stage_path(path, index, stage.uid, length(stages))
-
-        case save_stage(session, stage, where, opts) do
-          :ok -> {:cont, :ok}
-          {:error, error} -> {:halt, {:error, error}}
-        end
+        save_stage(session, stage, where, opts)
       end)
     end
   end
@@ -1457,41 +1487,11 @@ defmodule Latu.ML do
   end
 
   defp read_folds(session, path, folds, width) do
-    folds
-    |> Enum.reduce_while({:ok, []}, fn fold, {:ok, done} ->
-      case read_fold(session, path, fold, width) do
-        {:ok, models} -> {:cont, {:ok, [models | done]}}
-        {:error, error} -> {:halt, {:error, error, List.flatten(done)}}
-      end
-    end)
-    |> case do
-      {:ok, folds} ->
-        {:ok, Enum.reverse(folds)}
-
-      {:error, error, orphans} ->
-        release(collected(orphans))
-        {:error, error}
-    end
+    traverse(folds, &read_fold(session, path, &1, width))
   end
 
-  # A `Read` caches, so a partial load orphans what it already read. Third place this shape
-  # appears, after the pipeline fold and `load_stages`.
   defp read_fold(session, path, fold, width) do
-    0..(width - 1)
-    |> Enum.reduce_while({:ok, []}, fn index, {:ok, done} ->
-      case load_stage(session, Layout.sub_model_path(path, fold, index)) do
-        {:ok, model} -> {:cont, {:ok, [model | done]}}
-        {:error, error} -> {:halt, {:error, error, done}}
-      end
-    end)
-    |> case do
-      {:ok, models} ->
-        {:ok, Enum.reverse(models)}
-
-      {:error, error, orphans} ->
-        release(collected(orphans))
-        {:error, error}
-    end
+    traverse(0..(width - 1), &load_stage(session, Layout.sub_model_path(path, fold, &1)))
   end
 
   defp rebuilt_search(kind, uid, estimator, evaluator, params, name_of) do
@@ -1579,23 +1579,9 @@ defmodule Latu.ML do
   defp load_stages(session, path, uids) do
     uids
     |> Enum.with_index()
-    |> Enum.reduce_while({:ok, []}, fn {uid, index}, {:ok, done} ->
-      case load_stage(session, Layout.stage_path(path, index, uid, length(uids))) do
-        {:ok, stage} -> {:cont, {:ok, [stage | done]}}
-        {:error, error} -> {:halt, {:error, error, done}}
-      end
+    |> traverse(fn {uid, index} ->
+      load_stage(session, Layout.stage_path(path, index, uid, length(uids)))
     end)
-    |> case do
-      {:ok, stages} ->
-        {:ok, Enum.reverse(stages)}
-
-      # A `Read` caches, so the stages that did load are entries nothing asked for and nothing
-      # else will give back. Same shape as a fit that fails partway, and released the same way.
-      {:error, error, done} ->
-        done |> Enum.flat_map(&cached_models/1) |> release()
-
-        {:error, error}
-    end
   end
 
   # A stage says what it is in its own metadata, which is the only thing that does: a directory
@@ -1812,7 +1798,7 @@ defmodule Latu.ML do
     end)
     |> case do
       {:ok, decoded} -> {:ok, Enum.reverse(decoded)}
-      {:error, error} -> {:error, error}
+      error -> error
     end
   end
 
