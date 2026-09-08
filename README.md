@@ -20,7 +20,7 @@ MLlib is DataFrame in, DataFrame out. There is no `fit(x, y)` on tensors: featur
 def deps do
   [
     {:latu, "~> 0.4"},
-    {:latu_ml, "~> 0.1"}
+    {:latu_ml, "~> 0.2"}
   ]
 end
 ```
