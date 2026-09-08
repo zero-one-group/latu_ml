@@ -3,12 +3,37 @@
 `latu_ml` follows [Semantic Versioning](https://semver.org). Before 1.0, a minor version may
 rename or remove; each such change is listed here with the migration in one line.
 
-## Unreleased
+## 0.2.0 — 2026-09-08
 
-**The `latu` requirement is now `~> 0.4`**, tightened from `~> 0.3`. Nothing here needs a
-Latu 0.4 feature; the old constraint resolved any Latu below 1.0, and Latu's own changelog
-says a minor version may rename or remove, so it permitted a Latu release that broke this
-package silently. Bump `latu` alongside `latu_ml`.
+No API change. One dependency change, which is what makes this a minor.
+
+**The `latu` requirement is now `~> 0.4`**, raised from `~> 0.3`. Nothing here needs a Latu 0.4
+feature. What the floor buys is honesty: it names the Latu this package is developed and tested
+against rather than the oldest one that happens to work. Note what it does **not** buy. A
+two-component `~>` caps at the next major, so `~> 0.4` still resolves any Latu below 1.0.0,
+exactly as `~> 0.3` did. Capping a minor would need `~> 0.4.0`, and that is deliberately not
+what is here: it would mean a release of this package for every Latu minor. If you are below
+Latu 0.4.0, upgrade it alongside this.
+
+**Three docstrings were unreadable on hexdocs.** `Latu.ML.attribute/2`, `summary/1` and
+`operator/1` each carried a duplicated first line with a stray heredoc opener between the two
+copies. It is a legal escape inside a docstring, so it compiled, formatted and passed
+`mix docs --warnings-as-errors` without complaint.
+
+**`Latu.ML.load/4` could orphan a cache entry.** Loading a search reads its estimator before its
+evaluator, and a failure on the second left the first in the server's cache with nothing owning
+it. Fixing that turned up the larger half. The code that decides what to give back had no
+clause for an *unfitted* pipeline, whose stages may include a model that is already fitted, so
+such a pipeline was invisible to every release path and not only to this one.
+
+**The documentation was rewritten.** The README, the four guides and `usage-rules.md` are the
+same facts in a different voice, about a fifth shorter. The README now says on its first screen
+what shape MLlib is: DataFrame in, DataFrame out, with no `fit(x, y)` on tensors.
+
+Internals, with no surface change: the load and save folds share two helpers, so the rule that
+an error path gives back what it cached lives in one place instead of five; a failed second
+persist in a grid search no longer leaves the first one persisted; and the save layout's three
+parallel tables over the same six kinds became one.
 
 ## 0.1.0 — 2026-09-07
 
