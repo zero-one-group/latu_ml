@@ -5,8 +5,7 @@ the page you come back to.
 
 Every `elixir` snippet here is executed by `mix check.all`
 (`test/integration/guides_test.exs`), in order, sharing one set of bindings and one session. The
-pattern matches are the assertions. Every model fitted below is released before the page ends,
-which is the point of the last recipe.
+pattern matches are the assertions. Every model fitted below is released before the page ends.
 
 Where a recipe departs from PySpark, [`docs/deviations.md`](../deviations.md) has the reason.
 
@@ -19,9 +18,9 @@ alias Latu.ML.{Classification, Clustering, Evaluation, Feature, Regression}
 {:ok, session} = Latu.connect("sc://localhost:15003")
 ```
 
-One frame carries the page. It has a binary `label` for the classifiers, a continuous `y` for
-the regression, and two features — twelve rows, so that a two-fold search later on has
-something to cut:
+One frame carries the page. It has a binary `label` for the classifiers, a continuous `y` for the
+regression, and two features. Twelve rows, so that a two-fold search later on has something to
+cut:
 
 ```elixir
 data =
@@ -40,7 +39,7 @@ data =
 ```
 
 **Every estimator wants one `Vector` column.** `VectorAssembler` builds it, and applying it is a
-lazy builder — the frame below has reached no server:
+lazy builder. The frame below has reached no server:
 
 ```elixir
 assembler = Feature.vector_assembler(input_cols: [:x1, :x2], output_col: :features)
@@ -51,8 +50,8 @@ features = ML.transform(assembler, data)
 
 ## A classifier, end to end
 
-The shape every recipe on this page follows: build the estimator, fit it, read something off
-it, score with it, release it.
+The shape every recipe follows: build the estimator, fit it, read something off it, score with
+it, release it.
 
 ```elixir
 alias Latu.ML.Classification.{BinaryLogisticRegressionSummary, LogisticRegressionModel}
@@ -79,8 +78,8 @@ true = accuracy >= 0.0 and accuracy <= 1.0
 ```
 
 Scoring is a lazy builder too, so a scored frame composes like any other. **Select away the
-`Vector` columns before collecting** — `features`, `rawPrediction` and `probability` are UDTs
-the decoder refuses:
+`Vector` columns before collecting**: `features`, `rawPrediction` and `probability` are UDTs the
+decoder refuses:
 
 ```elixir
 scored = ML.transform(model, features)
@@ -116,9 +115,9 @@ alias Latu.ML.Regression.{LinearRegressionModel, LinearRegressionTrainingSummary
 {2} = Nx.shape(weights)
 ```
 
-A regression summary is where the diagnostics live, and it is worth knowing which of them are
-values and which are frames. `r2` is a number and arrives with `{:ok, _}`; `residuals` is a
-`Latu.DataFrame` and has run nothing yet:
+A regression summary is where the diagnostics live. Some of it is values and some of it is
+frames. `r2` is a number and arrives with `{:ok, _}`; `residuals` is a `Latu.DataFrame` and has
+run nothing yet:
 
 ```elixir
 fit_summary = ML.summary(linear)
@@ -159,7 +158,7 @@ true = nodes >= 3
 
 `feature_importances` is the one attribute on this page that does **not** come back as a tensor.
 Spark builds it with `Vectors.sparse`, because a tree usually ignores some of its features, and
-this package never densifies for you — a vector that is sparse is generally sparse on purpose:
+this package never densifies for you. A vector that is sparse is generally sparse on purpose:
 
 ```elixir
 {:ok, importances} = DecisionTreeClassificationModel.feature_importances(tree)
@@ -171,10 +170,10 @@ this package never densifies for you — a vector that is sparse is generally sp
 
 `Latu.ML.SparseVector.to_dense/1` is the caller's decision, and `Nx` is where it lands.
 
-**What you cannot get is the tree itself.** The server's allowlist gives a tree its depth, its
-node count, its feature importances and the four `predict*` methods — one round trip per row,
-so not a scoring path — and `to_debug_string`, which is a text dump with no compatibility
-promise. There is no node table and no thresholds as data:
+**What you cannot get is the tree itself.** The allowlist gives a tree its depth, its node count,
+its feature importances, the four `predict*` methods and `to_debug_string`. The `predict*` methods
+are one round trip per row, so not a scoring path. The debug string has no compatibility promise.
+There is no node table and no thresholds as data:
 
 ```elixir
 {:ok, dump} = DecisionTreeClassificationModel.to_debug_string(tree)
@@ -182,10 +181,9 @@ promise. There is no node table and no thresholds as data:
 true = is_binary(dump)
 ```
 
-So a tree is scored where it lives, with `Latu.ML.transform/2`. That is not a limitation of
-this package — it is the same for PySpark, and it is why the
-[Nx and Scholar guide](with-scholar-and-nx.md) says the parameters-out seam ends at the model
-families whose parameters *are* the model.
+So a tree is scored where it lives, with `Latu.ML.transform/2`. The parameters-out seam in
+[With Nx and Scholar](with-scholar-and-nx.md) ends at the model families whose parameters *are*
+the model.
 
 An ensemble adds one shape worth knowing: `trees` answers with a list of **cache entries**, one
 per tree, and they are yours to give back.
@@ -222,8 +220,8 @@ alias Latu.ML.Clustering.{KMeansModel, KMeansSummary}
 {2, 2} = Nx.shape(centres)
 ```
 
-A `Matrix` comes back row-major whatever Spark's `isTransposed` flag says — a storage flag is
-not a shape. The summary carries the sizes and the cost:
+A `Matrix` comes back row-major whatever Spark's `isTransposed` flag says. A storage flag is not
+a shape. The summary carries the sizes and the cost:
 
 ```elixir
 clustering = ML.summary(kmeans)
@@ -240,9 +238,8 @@ true = cost >= 0.0
 
 ## A pipeline, saved and read back
 
-`Pipeline` has no `Fit` on the wire — Spark exposes none — so both PySpark and this package
-fold over the stages themselves. Which means the thing that has to match between the two is not
-the wire but the **on-disk format**.
+`Pipeline` has no `Fit` on the wire, so both PySpark and this package fold over the stages
+themselves. Which means the thing that has to match is the **on-disk format**, not the wire.
 
 ```elixir
 scaler = Feature.standard_scaler(input_col: :features, output_col: :scaled, with_mean: true)
@@ -268,9 +265,9 @@ piped = ML.transform(fitted, data)
 12 = length(piped_rows)
 ```
 
-Saving writes Spark's own directory layout to a path **on the server** — the write happens
-where the session is, so a bare path is the driver's disk and anything a second machine has to
-read wants a URL the cluster's filesystem understands:
+Saving writes Spark's own directory layout to a path **on the server**. The write happens where
+the session is, so a bare path is the driver's disk. Anything a second machine has to read wants a
+URL the cluster's filesystem understands:
 
 ```elixir
 path = "/tmp/latu_ml_cookbook/#{System.unique_integer([:positive])}"
@@ -281,18 +278,18 @@ path = "/tmp/latu_ml_cookbook/#{System.unique_integer([:positive])}"
 %Latu.ML.PipelineModel{stages: [_, _, _]} = reloaded
 ```
 
-A loaded model holds a **fresh cache reference** — reading one costs a cache entry exactly as
-fitting one does — and it carries no training frame, so it has no summary and nothing to
-rebuild one from.
+A loaded model holds a **fresh cache reference**. Reading one costs a cache entry exactly as
+fitting one does. It carries no training frame, so it has no summary and nothing to rebuild one
+from.
 
 ```elixir
 :ok = ML.delete([fitted, reloaded])
 ```
 
-Two things about that directory are worth knowing before you rely on it. Each stage underneath
-is written by the *server*, so every stage is in Scala's own format and loads anywhere. The
-wrapper is not: its metadata says `class: "pyspark.ml.pipeline.Pipeline"`, which Scala's reader
-refuses — and refuses for PySpark's own saved pipelines too, for the same one key.
+Two things about that directory before you rely on it. Each stage underneath is written by the
+*server*, so every stage is in Scala's own format and loads anywhere. The wrapper is not: its
+metadata says `class: "pyspark.ml.pipeline.Pipeline"`, which Scala's reader refuses. It refuses
+PySpark's own saved pipelines too, for the same one key.
 
 ## Searching a grid
 
@@ -306,9 +303,9 @@ grid = ML.param_grid(tuned, reg_param: [0.0, 0.1])
 2 = length(grid)
 ```
 
-The search itself is client code on both sides — folds cut with `rand(seed)` and range filters,
-exactly as `CrossValidator._kFold` does it. Pass a `seed:`; without one the draw differs
-between runs and the search is not repeatable:
+The search itself is client code on both sides: folds cut with `rand(seed)` and range filters,
+exactly as `CrossValidator._kFold` does it. Pass a `seed:`. Without one the draw differs between
+runs and the search is not repeatable:
 
 ```elixir
 search =
@@ -335,9 +332,8 @@ as their metrics are read, unless you asked for them with `collect_sub_models: t
 :ok = ML.delete(best)
 ```
 
-`Latu.ML.larger_better?/1` is what decides argmax from argmin, and it is pure: the server's
-allowlist has no `isLargerBetter`, so PySpark overrides it client-side too and the extractor
-reads those overrides into the registry.
+`Latu.ML.larger_better?/1` decides argmax from argmin, and it is pure. The server's allowlist has
+no `isLargerBetter`, so the registry carries PySpark's own client-side overrides.
 
 ```elixir
 true = ML.larger_better?(Evaluation.binary_classification_evaluator())
@@ -348,8 +344,8 @@ false = ML.larger_better?(Evaluation.regression_evaluator(metric_name: "rmse"))
 
 A model is a server-side resource with no finalizer behind it. Three things help.
 
-`Latu.ML.with_model/3` is the bracket — acquire, use, release in an `after` — and it is the
-right shape whenever the handle does not have to outlive the expression:
+`Latu.ML.with_model/3` is the bracket: acquire, use, release in an `after`. It is the right shape
+whenever the handle does not have to outlive the expression:
 
 ```elixir
 {:ok, bracketed} =
@@ -361,8 +357,7 @@ true = is_float(bracketed)
 ```
 
 `Latu.ML.cache_info/1` says what the session is actually holding, and `Latu.ML.model_size/1`
-what one entry costs. Both are the answer to "did I leak something", and every recipe above
-deleted what it fitted:
+what one entry costs. Every recipe above deleted what it fitted:
 
 ```elixir
 {:ok, entries} = ML.cache_info(session)
@@ -370,8 +365,8 @@ deleted what it fitted:
 [] = entries
 ```
 
-`Latu.ML.clean_cache/1` empties the lot, and answers with how many entries it freed rather than
-a bare `:ok` — an empty cache is a legitimate zero:
+`Latu.ML.clean_cache/1` empties the lot, and answers with how many entries it freed rather than a
+bare `:ok`. An empty cache is a legitimate zero:
 
 ```elixir
 {:ok, 0} = ML.clean_cache(session)
@@ -385,6 +380,6 @@ Latu.disconnect(session, release: true)
 
 ## Where to go next
 
-  * [Coming from PySpark ML](from-pyspark-ml.md) — the five differences, and what a model *is*
-  * [With Nx and Scholar](with-scholar-and-nx.md) — the seam back onto the BEAM, measured
-  * [`docs/deviations.md`](../deviations.md) — the spelling table, and the reason for each row
+  * [Coming from PySpark ML](from-pyspark-ml.md). The five differences, and what a model *is*.
+  * [With Nx and Scholar](with-scholar-and-nx.md). The seam back onto the BEAM, and where it ends.
+  * [`docs/deviations.md`](../deviations.md). The spelling table, and the reason for each row.

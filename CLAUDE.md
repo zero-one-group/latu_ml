@@ -14,7 +14,7 @@ load-bearing enough to restate.
 
 ## What this package may assume of Latu
 
-Latu **0.3.0** — the pin is `~> 0.3` — exposes exactly five things for this package, and no
+Latu **0.4.0**, pinned `~> 0.4`, exposes exactly five things for this package, and no
 more:
 
 - `Latu.Plan.new/1` wraps a `Relation` or a `Command` as a `Plan`.

@@ -38,7 +38,7 @@ defmodule Latu.ML.MixProject do
 
   defp deps do
     [
-      {:latu, "~> 0.3"},
+      {:latu, "~> 0.4"},
       # Hard, not optional: a fitted model's attributes come back as tensors and there is no
       # useful surface here without them. Roadmap section 6.
       {:nx, "~> 0.13"},
@@ -51,6 +51,7 @@ defmodule Latu.ML.MixProject do
       licenses: ["Apache-2.0"],
       links: %{
         "GitHub" => @source_url,
+        "Changelog" => "https://hexdocs.pm/latu_ml/changelog.html",
         "Latu" => "https://hexdocs.pm/latu",
         "MLlib" => "https://spark.apache.org/docs/latest/ml-guide.html"
       },

@@ -97,6 +97,10 @@ defmodule Latu.ML do
   """
   @type loadable :: atom() | {String.t(), Plan.kind()}
 
+  # =============================================
+  # Fitting
+  # =============================================
+
   @doc """
   Fit an estimator, or a whole pipeline, on a frame.
 
@@ -295,6 +299,10 @@ defmodule Latu.ML do
             "a model already fitted, or another pipeline."
   end
 
+  # =============================================
+  # Transform and evaluate
+  # =============================================
+
   @doc """
   Apply a transformer or a fitted model to a frame.
 
@@ -404,6 +412,10 @@ defmodule Latu.ML do
   `param_grid/2` rather than by hand.
   """
   @type param_map :: [{String.t(), atom(), term()}]
+
+  # =============================================
+  # Grid search
+  # =============================================
 
   @doc """
   A grid of params to try, as data.
@@ -671,6 +683,10 @@ defmodule Latu.ML do
     {required, Keyword.drop(opts, [:estimator, :param_maps, :evaluator])}
   end
 
+  # =============================================
+  # Operators that are neither fitted nor applied
+  # =============================================
+
   @doc """
   Assign a cluster to every vertex of an affinity matrix — Power Iteration Clustering.
 
@@ -727,6 +743,10 @@ defmodule Latu.ML do
   defp helper_operator(%Helper{class: actual}, _data, expected) do
     raise ArgumentError, "that verb is #{expected}'s, and this operator is a #{actual}"
   end
+
+  # =============================================
+  # Attributes
+  # =============================================
 
   @doc """
   Read a model attribute whose answer is a value — a coefficient, an intercept, a count.
@@ -862,6 +882,10 @@ defmodule Latu.ML do
     }
   end
 
+  # =============================================
+  # The helper object
+  # =============================================
+
   @doc """
   Call a method on the server's own helper object.
 
@@ -941,6 +965,10 @@ defmodule Latu.ML do
     %DataFrame{session: Internal.frame_of!(row, args).session, plan: plan}
   end
 
+  # =============================================
+  # Summaries
+  # =============================================
+
   @doc """
   The training summary a fitted model carries.
 
@@ -961,6 +989,10 @@ defmodule Latu.ML do
   """
   @spec summary(Model.t()) :: Summary.t()
   def summary(%Model{} = model), do: Internal.summary(model)
+
+  # =============================================
+  # Saving
+  # =============================================
 
   @doc """
   Write a model or an unfitted operator to a path, in Spark's own on-disk format.
@@ -1276,6 +1308,10 @@ defmodule Latu.ML do
           "#{operator.class} has not been fitted, so it has no session of its own. Pass " <>
             "session: to say which server to write it to."
   end
+
+  # =============================================
+  # Loading
+  # =============================================
 
   @doc """
   Read a model or an operator back from a path.
@@ -1620,6 +1656,10 @@ defmodule Latu.ML do
 
   defp cached?(_info, _kind, _class), do: :ok
 
+  # =============================================
+  # The model cache
+  # =============================================
+
   @doc """
   Release a model, or a list of them, from the server's ML cache.
 
@@ -1894,6 +1934,10 @@ defmodule Latu.ML do
     "CONNECT_ML.ML_CACHE_SIZE_OVERFLOW_EXCEPTION" => :cache_full
   }
 
+  # =============================================
+  # Errors
+  # =============================================
+
   @doc """
   Which ML failure this is, as an atom, or `nil` for anything that is not one.
 
@@ -1972,6 +2016,10 @@ defmodule Latu.ML do
   end
 
   defp hint_for(_unknown), do: nil
+
+  # =============================================
+  # The registry, at runtime
+  # =============================================
 
   @doc """
   Every operator this package knows, as `Latu.ML.Operator` structs.
@@ -2101,6 +2149,11 @@ defmodule Latu.ML do
   end
 
   defp released(%PipelineModel{uid: uid}), do: "could not delete the models in #{uid}: "
+  defp released(%CrossValidatorModel{uid: uid}), do: "could not delete the models in #{uid}: "
+
+  defp released(%TrainValidationSplitModel{uid: uid}),
+    do: "could not delete the models in #{uid}: "
+
   defp released(%Model{ref: ref}), do: "could not delete model #{ref}: "
 
   defp released(models) when is_list(models),

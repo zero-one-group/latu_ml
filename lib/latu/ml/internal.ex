@@ -23,11 +23,6 @@ defmodule Latu.ML.Internal do
 
   @kinds [:estimator, :transformer, :evaluator, :model]
 
-  # What `load/4` can be asked for that has no `Read` behind it: a pipeline and a search are
-  # directories this package wrote, so they are read rather than loaded. Their "class" is
-  # PySpark's spelling of the format, which is what `Latu.ML.Layout` writes into the metadata
-  # and what `load/4` reads back — both to tell a nested pipeline from a stage, and to tell
-  # which of the two shapes a directory is.
   @doc """
   Whether a bigger metric is a better one, for this evaluator. `Latu.ML.larger_better?/1`.
 
@@ -250,14 +245,14 @@ defmodule Latu.ML.Internal do
   defp uids_of(%{uid: uid}) when is_binary(uid), do: [uid]
   defp uids_of(_operator), do: []
 
-  @meta_algorithms %{
-    pipeline: :pipeline,
-    pipeline_model: :pipeline_model,
-    cross_validator: :cross_validator,
-    cross_validator_model: :cross_validator_model,
-    train_validation_split: :train_validation_split,
-    train_validation_split_model: :train_validation_split_model
-  }
+  @meta_algorithms [
+    :pipeline,
+    :pipeline_model,
+    :cross_validator,
+    :cross_validator_model,
+    :train_validation_split,
+    :train_validation_split_model
+  ]
 
   @type saveable :: Model.t() | Estimator.t() | Transformer.t() | Evaluator.t()
   @type loadable :: atom() | {String.t(), Plan.kind()}
@@ -270,7 +265,7 @@ defmodule Latu.ML.Internal do
   nil row too, so nil alone cannot be the test.
   """
   @spec meta_algorithms() :: [atom()]
-  def meta_algorithms, do: Map.keys(@meta_algorithms)
+  def meta_algorithms, do: @meta_algorithms
 
   @doc """
   Build the operator a generated constructor stands for.
@@ -533,8 +528,8 @@ defmodule Latu.ML.Internal do
 
   def loadable!({class, kind}) when is_binary(class) and kind in @kinds, do: {class, kind, nil}
 
-  def loadable!(name) when is_map_key(@meta_algorithms, name) do
-    {Latu.ML.Layout.class(name), Map.fetch!(@meta_algorithms, name), nil}
+  def loadable!(name) when name in @meta_algorithms do
+    {Latu.ML.Layout.class(name), name, nil}
   end
 
   def loadable!(name) when is_atom(name) and not is_nil(name) do
