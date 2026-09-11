@@ -136,10 +136,15 @@ defmodule Latu.ML.Registry do
 
   @operators Enum.sort_by(operators, & &1.name)
   @by_name Map.new(operators, &{&1.name, &1})
-  @classes Enum.sort_by(classes, & &1.class)
-  @by_class Map.new(classes, &{&1.class, &1})
   @by_operator_class Map.new(operators, &{&1.class, &1})
+
+  # The class rows are stored once, keyed by module, and `classes/0` and the by-name `class/1`
+  # go through that map. A literal list of these rows, or a map of them keyed by string, is the
+  # one shape Elixir 1.18's type checker does not finish on: it unions the rows, and a row's
+  # first key is `attributes`, a list of maps, so every pair costs an exponential emptiness
+  # check. Atom keys keep the rows apart. `docs/decisions.md`, 2026-09-11.
   @by_module Map.new(classes, &{&1.module, &1})
+  @module_of_class Map.new(classes, &{&1.class, &1.module})
   @helpers Enum.sort_by(helpers, & &1.name)
   @by_helper Map.new(helpers, &{&1.name, &1})
   @helpers_by_owner Enum.group_by(helpers, & &1.owner)
@@ -177,7 +182,7 @@ defmodule Latu.ML.Registry do
   `:from` (the allowlist entries it inherits) and `:attributes`.
   """
   @spec classes() :: [map()]
-  def classes, do: @classes
+  def classes, do: @by_module |> Map.values() |> Enum.sort_by(& &1.class)
 
   @doc """
   The registry row for a JVM class name, an accessor module, or nil.
@@ -187,7 +192,7 @@ defmodule Latu.ML.Registry do
   reasonable question with a plain answer.
   """
   @spec class(String.t() | module() | term()) :: map() | nil
-  def class(name) when is_binary(name), do: Map.get(@by_class, name)
+  def class(name) when is_binary(name), do: class(Map.get(@module_of_class, name))
   def class(module) when is_atom(module), do: Map.get(@by_module, module)
   def class(_other), do: nil
 

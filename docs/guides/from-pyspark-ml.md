@@ -191,8 +191,9 @@ a read, and there is no wire path for the other direction. `OneVsRest`, which sh
 the validators but the word *meta-algorithm*. And the deprecated torch-based `pyspark.ml.connect`
 package from 3.4 and 3.5.
 
-`Summarizer` is reachable but not wrapped: its `aggregate_metrics` resolves, and reading one
-metric out of the struct it answers with needs field access Latu does not build yet.
+`Summarizer` is `Latu.ML.Stat.summary/3` and ten shortcuts, `Latu.ML.Stat.mean/2` among them.
+Its metrics come back as `Vector`s, so `Latu.ML.Functions.vector_to_array/2` is the way to read
+one.
 
 ## Where to go next
 

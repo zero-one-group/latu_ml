@@ -16,7 +16,9 @@ defmodule Latu.ML.LayeringTest do
 
   @grpc ~r/^GRPC\b/
   @transport ~r/^Latu\.Client\b/
-  @facade ~r/^Latu\.ML$/
+  # `Latu.ML.Persistence` is the facade's own `save/3` and `load/4`, moved out for size with
+  # their docstrings left behind; it issues the `Write` and `Read` commands those verbs are.
+  @facade ~r/^Latu\.ML(\.Persistence)?$/
 
   @proto_layers ~w(plan.ex linalg.ex result.ex)
 

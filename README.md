@@ -19,13 +19,13 @@ MLlib is DataFrame in, DataFrame out. There is no `fit(x, y)` on tensors: featur
 ```elixir
 def deps do
   [
-    {:latu, "~> 0.4"},
-    {:latu_ml, "~> 0.2"}
+    {:latu, "~> 0.7"},
+    {:latu_ml, "~> 0.3"}
   ]
 end
 ```
 
-Requires Elixir ~> 1.20 and a Spark **4.2.0** Connect server, the same one Latu targets.
+Requires Elixir 1.18 or newer and a Spark **4.2.0** Connect server, the same one Latu targets.
 
 ## A server to talk to
 
@@ -103,6 +103,8 @@ for either: `Latu.ML.pipeline/1`, `Latu.ML.param_grid/2`, `Latu.ML.cross_validat
 **Two column functions**: `Latu.ML.Functions.vector_to_array/2` and
 `Latu.ML.Functions.array_to_vector/1`. They are the way to read a `Vector` column, which
 `Latu.collect/2` refuses: Spark describes it as a UDT and declines to say what it serialises as.
+**`Summarizer`** is `Latu.ML.Stat.summary/3`, aggregate statistics over a `Vector` column for
+`Latu.agg/2`, with one shortcut per metric.
 
 **Not here.** Anything closure-shaped, the RDD-era `spark.mllib`, `OneVsRest`, and building a
 model out of parameters you already hold.

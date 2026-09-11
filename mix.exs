@@ -1,14 +1,16 @@
 defmodule Latu.ML.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "0.3.0"
   @source_url "https://github.com/zero-one-group/latu_ml"
 
   def project do
     [
       app: :latu_ml,
       version: @version,
-      elixir: "~> 1.20",
+      # 1.18 is the floor, as Latu's: nothing here needs a newer stdlib, and CI compiles and
+      # tests the floor beside the pinned version (.github/workflows/ci.yml).
+      elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       # Latu's reason: any file the incremental compiler touches is held to it, rather than
       # forcing a full recompile per run with `--force --warnings-as-errors`.
@@ -38,7 +40,9 @@ defmodule Latu.ML.MixProject do
 
   defp deps do
     [
-      {:latu, "~> 0.4"},
+      # The Latu this was built against: `Summarizer` reads its struct with
+      # `Latu.Column.get_field/2`, which is 0.7.0.
+      {:latu, "~> 0.7"},
       # Hard, not optional: a fitted model's attributes come back as tensors and there is no
       # useful surface here without them. Roadmap section 6.
       {:nx, "~> 0.13"},

@@ -147,6 +147,44 @@ defmodule Latu.ML.HelperTest do
     end
   end
 
+  describe "Summarizer" do
+    alias Latu.Column
+    alias Latu.ML.Functions
+
+    # x1 is [0.0, 0.1, 2.0, 2.1] and x2 [1.1, 1.0, 0.1, 0.2] in the setup above.
+    test "one metric at a time, read back through vector_to_array", %{features: features} do
+      {:ok, [row]} =
+        features
+        |> Latu.agg(
+          count: Stat.count(:features),
+          mean: Functions.vector_to_array(Stat.mean(:features))
+        )
+        |> Latu.collect()
+
+      assert row.count == 4
+      assert [x1, x2] = row.mean
+      assert_in_delta x1, 1.05, 1.0e-9
+      assert_in_delta x2, 0.6, 1.0e-9
+    end
+
+    test "several metrics in one struct, with a weight column", %{features: features} do
+      {:ok, [row]} =
+        features
+        |> Latu.with_columns(w: 2.0)
+        |> Latu.agg(s: Stat.summary(:features, [:count, :max], weight: :w))
+        |> Latu.select(
+          count: Column.get_field(:s, :count),
+          max: Functions.vector_to_array(Column.get_field(:s, :max))
+        )
+        |> Latu.collect()
+
+      assert row.count == 4
+      assert [x1, x2] = row.max
+      assert_in_delta x1, 2.1, 1.0e-9
+      assert_in_delta x2, 1.1, 1.0e-9
+    end
+  end
+
   describe "the two operators that are neither fitted nor applied" do
     test "power iteration clustering assigns a cluster per vertex", %{session: session} do
       edges =

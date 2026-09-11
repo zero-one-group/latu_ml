@@ -68,3 +68,20 @@ jobs:
       - name: Spark logs
         if: failure()
         run: docker compose logs --no-color --tail=200
+
+  # The floor mix.exs promises, compiled and tested on the oldest Elixir it names, as Latu's
+  # own job does. No servers and no format check. Not a required check.
+  floor:
+    name: Elixir 1.18 floor
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18"
+          otp-version: "27"
+      - run: mix local.hex --force && mix local.rebar --force
+      - run: mix deps.get --check-locked
+      - run: MIX_ENV=test mix compile --force --warnings-as-errors
+      - run: mix test

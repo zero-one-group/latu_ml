@@ -180,7 +180,7 @@ def fixtures(spark):
     from pyspark.ml.linalg import DenseMatrix, DenseVector, SparseVector
     from pyspark.ml.recommendation import ALS, ALSModel
     from pyspark.ml.regression import LinearRegression
-    from pyspark.ml.stat import ChiSquareTest
+    from pyspark.ml.stat import ChiSquareTest, Summarizer
     from pyspark.ml.util import RemoteModelRef
     from pyspark.sql.functions import col
 
@@ -305,6 +305,19 @@ def fixtures(spark):
             vector_to_array(col("features"), "float32")
         ),
         "ml_functions_array_to_vector": lambda: select_expr(array_to_vector(col("a"))),
+        # `Summarizer`: `aggregate_metrics` with the metric names as an array of literals and
+        # the weight as `lit(1.0)` when absent, then `getField` for one metric. PySpark's
+        # `Summarizer.mean` adds an alias of its own, which Latu leaves to the projection, so
+        # the one-metric fixture is built from the builder rather than the shortcut.
+        "ml_stat_summary": lambda: select_expr(
+            Summarizer.metrics("mean", "count").summary(col("features"))
+        ),
+        "ml_stat_summary_weighted": lambda: select_expr(
+            Summarizer.metrics("normL2").summary(col("features"), col("w"))
+        ),
+        "ml_stat_summary_field": lambda: select_expr(
+            Summarizer.metrics("mean").summary(col("features")).getField("mean")
+        ),
         # An evaluator's command, which `Latu.ML.evaluate/2` will send once ML4 gives it a verb.
         # The wire form is settled now, so the verb has only the result left to get wrong.
         "ml_evaluate_regression": lambda: evaluate(RegressionEvaluator, metricName="mae"),

@@ -1208,63 +1208,70 @@ IO.puts("\nthe facade against itself")
 # at that one — plus a call to a name it never defines at all. Kernel and imported names are
 # excluded by only considering names the module itself mentions in a definition.
 
-facade = Path.join(src, "lib/latu/ml.ex")
-{:ok, facade_ast} = Code.string_to_quoted(File.read!(facade))
+# Since 2026-09-11 the same file split three ways: `Latu.ML.Persistence` (save and load) and
+# `Latu.ML.Cache` (what owns a cached model) call `Latu.ML` and each other, so all three are
+# read here, each against itself.
+lint = fn path, floor ->
+  {:ok, facade_ast} = Code.string_to_quoted(File.read!(Path.join(src, path)))
 
-# Pipes first: `x |> f()` is `f/0` in the AST and `f/1` in fact.
-{piped, _} =
-  Macro.prewalk(facade_ast, nil, fn
-    {:|>, _meta, [left, {name, meta, args}]}, acc when is_atom(name) ->
-      {{name, meta, [left | args || []]}, acc}
+  # Pipes first: `x |> f()` is `f/0` in the AST and `f/1` in fact.
+  {piped, _} =
+    Macro.prewalk(facade_ast, nil, fn
+      {:|>, _meta, [left, {name, meta, args}]}, acc when is_atom(name) ->
+        {{name, meta, [left | args || []]}, acc}
 
-    node, acc ->
-      {node, acc}
-  end)
+      node, acc ->
+        {node, acc}
+    end)
 
-arities = fn args ->
-  optional = Enum.count(args, &match?({:\\, _, _}, &1))
-  Enum.to_list((length(args) - optional)..length(args))
+  arities = fn args ->
+    optional = Enum.count(args, &match?({:\\, _, _}, &1))
+    Enum.to_list((length(args) - optional)..length(args))
+  end
+
+  {_, defined} =
+    Macro.prewalk(piped, MapSet.new(), fn
+      {kind, _, [{:when, _, [{name, _, args} | _]} | _]} = node, acc
+      when kind in [:def, :defp] and is_list(args) ->
+        {node, Enum.reduce(arities.(args), acc, &MapSet.put(&2, {name, &1}))}
+
+      {kind, _, [{name, _, args} | _]} = node, acc
+      when kind in [:def, :defp] and is_list(args) ->
+        {node, Enum.reduce(arities.(args), acc, &MapSet.put(&2, {name, &1}))}
+
+      {:defdelegate, _, [{name, _, args} | _]} = node, acc when is_list(args) ->
+        {node, MapSet.put(acc, {name, length(args)})}
+
+      node, acc ->
+        {node, acc}
+    end)
+
+  {_, calls} =
+    Macro.prewalk(piped, [], fn
+      {name, meta, args} = node, acc when is_atom(name) and is_list(args) ->
+        {node, [{name, length(args), meta[:line]} | acc]}
+
+      node, acc ->
+        {node, acc}
+    end)
+
+  known = MapSet.new(defined, fn {name, _arity} -> name end)
+
+  unresolved =
+    calls
+    |> Enum.filter(fn {name, arity, _line} ->
+      MapSet.member?(known, name) and not MapSet.member?(defined, {name, arity})
+    end)
+    |> Enum.uniq_by(fn {name, arity, _line} -> {name, arity} end)
+    |> Enum.sort()
+
+  check.("#{path} defines what it calls", unresolved, [])
+  check.("and it is a surface worth the check", MapSet.size(defined) > floor, true)
 end
 
-{_, defined} =
-  Macro.prewalk(piped, MapSet.new(), fn
-    {kind, _, [{:when, _, [{name, _, args} | _]} | _]} = node, acc
-    when kind in [:def, :defp] and is_list(args) ->
-      {node, Enum.reduce(arities.(args), acc, &MapSet.put(&2, {name, &1}))}
-
-    {kind, _, [{name, _, args} | _]} = node, acc
-    when kind in [:def, :defp] and is_list(args) ->
-      {node, Enum.reduce(arities.(args), acc, &MapSet.put(&2, {name, &1}))}
-
-    {:defdelegate, _, [{name, _, args} | _]} = node, acc when is_list(args) ->
-      {node, MapSet.put(acc, {name, length(args)})}
-
-    node, acc ->
-      {node, acc}
-  end)
-
-{_, calls} =
-  Macro.prewalk(piped, [], fn
-    {name, meta, args} = node, acc when is_atom(name) and is_list(args) ->
-      {node, [{name, length(args), meta[:line]} | acc]}
-
-    node, acc ->
-      {node, acc}
-  end)
-
-known = MapSet.new(defined, fn {name, _arity} -> name end)
-
-unresolved =
-  calls
-  |> Enum.filter(fn {name, arity, _line} ->
-    MapSet.member?(known, name) and not MapSet.member?(defined, {name, arity})
-  end)
-  |> Enum.uniq_by(fn {name, arity, _line} -> {name, arity} end)
-  |> Enum.sort()
-
-check.("the facade defines what it calls", unresolved, [])
-
-check.("and it is a surface worth the check", MapSet.size(defined) > 100, true)
+lint.("lib/latu/ml.ex", 60)
+lint.("lib/latu/ml/persistence.ex", 30)
+lint.("lib/latu/ml/cache.ex", 5)
 
 IO.puts("\ntuning")
 

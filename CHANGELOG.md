@@ -3,6 +3,24 @@
 `latu_ml` follows [Semantic Versioning](https://semver.org). Before 1.0, a minor version may
 rename or remove; each such change is listed here with the migration in one line.
 
+## 0.3.0 — 2026-09-11
+
+**`Summarizer`.** `Latu.ML.Stat.summary/3` is `aggregate_metrics` over a `Vector` column with
+the metrics as a list and the weight as an option; `Latu.ML.Stat.mean/2` and nine siblings read
+one metric out. Roadmap D14, open since `aggregate_metrics` was found to resolve: what it waited
+for was `Latu.Column.get_field/2`, which is Latu 0.7.0.
+
+**The `latu` requirement is `~> 0.7`**, the Latu this was built against and the one `Summarizer`
+needs. **Elixir 1.18 is the floor**, down from 1.20, as Latu's is; CI compiles and tests the
+floor as its own job.
+
+**`Latu.ML` is 600 lines shorter.** `save/3` and `load/4` and everything under them moved to a
+module of their own, and the five helpers that decide who owns a cached model to another; the
+facade keeps the verbs and the docstrings. No change to what is called or what comes back.
+
+**An error the status cut at 2048 characters arrives whole**, and an older Spark's two refusals
+of a 4.2 client name their cause. Both are Latu 0.7.0's and apply here through it.
+
 ## 0.2.0 — 2026-09-08
 
 No API change. One dependency change, which is what makes this a minor.
