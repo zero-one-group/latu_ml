@@ -3,7 +3,7 @@
 `latu_ml` follows [Semantic Versioning](https://semver.org). Before 1.0, a minor version may
 rename or remove; each such change is listed here with the migration in one line.
 
-## Unreleased
+## 0.3.0 — 2026-09-11
 
 **`Summarizer`.** `Latu.ML.Stat.summary/3` is `aggregate_metrics` over a `Vector` column with
 the metrics as a list and the weight as an option; `Latu.ML.Stat.mean/2` and nine siblings read
