@@ -1249,3 +1249,22 @@ Latu asks for 1.18 anyway. The `latu` pin names the minor this package was built
 against, which settles the question 0.2.0 left open in the changelog: the pin says what was
 tested, not the oldest thing that happens to work, and `Summarizer` makes 0.7.0 a hard
 requirement in any case.
+
+## 2026-09-11 — The registry keeps its class rows in one atom-keyed map
+
+The floor job's first run never finished compiling `Latu.ML.Registry`: fifteen minutes on
+Elixir 1.18.4, where 1.20.3 takes a second. The type checker was the cost, not the data.
+1.18 computes the type of every literal in a function body, and a *list* of the class rows (or
+a map of them keyed by class-name string, which it types the same way) means unioning the rows
+pairwise. Its union optimisation compares the first key the two rows differ on, and by
+alphabetical order that is `attributes`: a list of maps, so the comparison is a subtyping check
+between two lists of map unions, and the emptiness test under it is exponential in the number
+of attribute maps. The operator rows escape because they differ on `constructor` and `group`
+first, both cheap. Ten class rows were enough to pass a minute.
+
+So the rows live in `@by_module` alone, a map with atom keys, whose values the checker types
+one at a time; the by-name lookup goes through a string-to-module map of the same shape, and
+`classes/0` sorts the map's values on each call, sixty-five rows. Every answer is the same
+term as before, checked byte-for-byte against the old module. The floor job is what keeps this
+true, which is what a floor job is for: without it the promise of 1.18 in `mix.exs` would have
+been a compile that never ends.
