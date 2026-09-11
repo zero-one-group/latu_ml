@@ -4,10 +4,11 @@
 [Latu](https://hexdocs.pm/latu). Latu owns the session, the transport and the plan; this package
 owns the ML commands and relations built on top of them.
 
-Design docs, roadmap and progress notes live in the Latu project on claude.ai, not in the repo —
-`latu-ml-roadmap.md` is the plan this follows. Per-decision rationale goes in
-`docs/decisions.md`, which does not ship; every place the public API departs from PySpark goes in
-`docs/deviations.md`, which does. Only the delta from Latu's own two files belongs in either.
+Progress notes live in the Latu project on claude.ai, not in the repo: `latu-progress.md` is
+the position and `latu-ml-notes.md` what the ML server does that its protos do not say.
+Per-decision rationale goes in `docs/decisions.md`, which does not ship; every place the public
+API departs from PySpark goes in `docs/deviations.md`, which does. Only the delta from Latu's
+own two files belongs in either.
 
 **Latu's `CLAUDE.md` applies here in full.** What follows is the delta, plus the rules that are
 load-bearing enough to restate.
