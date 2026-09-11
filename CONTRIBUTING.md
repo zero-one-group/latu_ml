@@ -4,7 +4,7 @@
 Same conventions, same rhythm, same gates. What follows is the delta, which is mostly the two
 extractors and the probe.
 
-Requires Elixir ~> 1.20, Docker, and Python 3 for the plan oracle and the extractors.
+Requires Elixir 1.20 (`.tool-versions`; the package itself runs on 1.18 or newer), Docker, and Python 3 for the plan oracle and the extractors.
 
 ```bash
 mix deps.get

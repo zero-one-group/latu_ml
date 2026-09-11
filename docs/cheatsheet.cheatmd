@@ -95,6 +95,25 @@ positionally.
 | `Latu.ML.helper/2,3` | The generic call underneath all of them. **+ !** |
 | `Latu.ML.helper_frame/2` | The same where the answer is a frame. |
 
+### Summarizer
+
+Aggregate statistics over a `Vector` column, as expressions for `Latu.agg/2`. Every metric but
+`count` is a `Vector`; `vector_to_array` reads it.
+
+| | |
+| --- | --- |
+| `Latu.ML.Stat.summary/2,3` | Several metrics as one struct, under Spark's field names. `weight:`. |
+| `Latu.ML.Stat.mean/1,2` | One metric, the field read out. Same `weight:`. |
+| `Latu.ML.Stat.sum/1,2` | |
+| `Latu.ML.Stat.variance/1,2` | |
+| `Latu.ML.Stat.std/1,2` | |
+| `Latu.ML.Stat.count/1,2` | The one metric that is a number, not a `Vector`. |
+| `Latu.ML.Stat.num_nonzeros/1,2` | `numNonzeros` on the wire. |
+| `Latu.ML.Stat.max/1,2` | |
+| `Latu.ML.Stat.min/1,2` | |
+| `Latu.ML.Stat.norm_l2/1,2` | `normL2`. |
+| `Latu.ML.Stat.norm_l1/1,2` | `normL1`. |
+
 ### Columns and tensors
 
 | | |

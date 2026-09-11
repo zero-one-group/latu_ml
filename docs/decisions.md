@@ -1197,3 +1197,55 @@ count — a separate package would make `Latu.ML.Generate` public compile-time A
 release-cadence problem that does not exist until there are two libraries. Revisit when XGBoost
 rebuilds against Spark 4.x, or when someone wants CatBoost (the only remaining candidate built
 against a 4.x line, which is what separated isolation-forest's success from XGBoost's failure).
+
+## 2026-09-11 — `Summarizer` is `Stat.summary/3` and ten shortcuts, over `get_field/2`
+
+D14 waited on field access, and Latu 0.7.0's `Latu.Column.get_field/2` is it. PySpark's route
+on Connect is `aggregate_metrics(array(metric names), features, weight or lit(1.0))`, a struct
+keyed by metric, then `getField`. `Latu.ML.Stat.summary/3` is that one call with the metrics as
+a list of atoms and `weight:` as an option; the ten shortcuts (`mean/2` through `norm_l1/2`) are
+`get_field/2` over a one-metric summary, which is exactly what PySpark's `Summarizer.mean`
+builds, minus the alias PySpark adds and Latu leaves to the projection. The wire is pinned by
+three goldens built from `Summarizer.metrics(...).summary(...)` and `.getField`, not from the
+shortcut, for that reason.
+
+**Metric names are atoms in Elixir spelling, refused client-side against the ten.** The server
+would answer `FAILED_FUNCTION_CALL` for an unknown name; the set is closed and known, so the
+typo is caught where it is made. The struct's fields keep Spark's spelling (`numNonzeros`,
+`normL2`), because the server names them and a caller reading the struct directly should see
+what the server wrote.
+
+**`max` and `min` collide with `Kernel`'s.** Spark's names win, and the module imports `Kernel`
+without those two arities; nothing in it needed them. A rename would have been a deviation with
+no reason behind it but the collision.
+
+## 2026-09-11 — `Latu.ML.Persistence` and `Latu.ML.Cache`, the facade's first split
+
+`lib/latu/ml.ex` was 2150 lines. `save/3`, `load/4` and their 38 private helpers were 600 of
+them, called nothing else in the file, and were called by nothing else in the file. They are now
+`Latu.ML.Persistence`, `@moduledoc false`; the four verbs stay on `Latu.ML` with their
+docstrings, because `h Latu.ML.save` is where the contract is read.
+
+The seam was measured before the move and had grown since the punch list scoped it: the region
+needed `traverse/2`, `each_ok/2`, `collected/1` and `release/1` from the facade, the four
+functions that apply the rule that a `Read` caches so every error path owns what it read. Those,
+with `cached_models/1` they rest on, are `Latu.ML.Cache`, also hidden, shared by both. Making
+them public on the facade instead would have put five internals on the cheatsheet, whose test
+counts every export of `Latu.ML`.
+
+**The layering rule widened by one module.** "Only the facade calls Latu's transport" now admits
+`Latu.ML.Persistence`, since a `Write` and a `Read` are the RPCs those two verbs are; the test
+says so beside the regex. The proto rule is unchanged: neither new module names
+`Latu.Protocol`.
+
+`dev/check_offline.exs` reads all three files against themselves now, with a floor per file.
+The facade's floor came down from 100 definitions to 60, which is what it has after the move.
+
+## 2026-09-11 — The floor is 1.18, the pin is `~> 0.7`
+
+Both follow Latu's own decisions of the same day. Nothing here needs a stdlib newer than 1.18
+(a scan of every stdlib call found nothing past 1.14), and the `googleapis` dependency under
+Latu asks for 1.18 anyway. The `latu` pin names the minor this package was built and tested
+against, which settles the question 0.2.0 left open in the changelog: the pin says what was
+tested, not the oldest thing that happens to work, and `Summarizer` makes 0.7.0 a hard
+requirement in any case.
