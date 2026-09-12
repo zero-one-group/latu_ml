@@ -29,7 +29,9 @@ defmodule Latu.ML.GuidesTest do
 
   # Every skipped fence, by guide and reason. An opt-out nobody counts is an opt-out that
   # spreads, so a new one fails here until somebody writes down why.
-  @illustrative []
+  @illustrative [
+    {"docs/guides/cookbook.md", "Bumblebee is not a dependency of this package."}
+  ]
 
   # A wildcard that matched nothing would define no tests and pass in silence, which is the one
   # failure mode a runner like this cannot report on its own. Read the directory again rather
