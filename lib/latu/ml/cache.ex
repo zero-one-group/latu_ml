@@ -32,6 +32,14 @@ defmodule Latu.ML.Cache do
 
   def collected(kept), do: kept |> List.flatten() |> Enum.flat_map(&cached_models/1)
 
+  # What `Latu.ML.delete/1` frees for a value. For a plain model or pipeline that is everything it
+  # holds; for a search it is what the search recorded owning — its acquisitions, never a
+  # pre-fitted stage the caller supplied — so deleting a tuned model leaves the caller's stage.
+  def owned_models(models) when is_list(models), do: Enum.flat_map(models, &owned_models/1)
+  def owned_models(%CrossValidatorModel{owned: owned}) when is_list(owned), do: owned
+  def owned_models(%TrainValidationSplitModel{owned: owned}) when is_list(owned), do: owned
+  def owned_models(other), do: cached_models(other)
+
   # Collect in order, or give back what was already cached and answer with the first error.
   # A `Read` caches, so every error path below one owns what it read. That decision lives here
   # rather than at each fold, because five copies of it is how the sixth came to forget.

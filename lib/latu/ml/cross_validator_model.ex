@@ -30,7 +30,8 @@ defmodule Latu.ML.CrossValidatorModel do
     :avg_metrics,
     :std_metrics,
     :sub_models,
-    :validator
+    :validator,
+    :owned
   ]
 
   @type t :: %__MODULE__{
@@ -40,6 +41,7 @@ defmodule Latu.ML.CrossValidatorModel do
           avg_metrics: [float()],
           std_metrics: [float()] | nil,
           sub_models: [[fitted()]] | nil,
-          validator: CrossValidator.t()
+          validator: CrossValidator.t(),
+          owned: [Model.t()] | nil
         }
 end

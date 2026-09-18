@@ -357,7 +357,9 @@ defmodule Latu.ML.Persistence do
           {:ok, searched_from(kind, session, validator, metadata, best_model, sub_models)}
 
         {:error, error} ->
-          Cache.release(Cache.collected([best_model]))
+          # The winner and the estimator's stages are both cached by now, and a caller left
+          # holding an error owns neither, so both go back.
+          Cache.release(Cache.collected([best_model, validator.estimator]))
           {:error, error}
       end
     end
@@ -449,7 +451,8 @@ defmodule Latu.ML.Persistence do
       avg_metrics: Map.fetch!(metadata, "avgMetrics"),
       std_metrics: Map.get(metadata, "stdMetrics"),
       sub_models: subs,
-      validator: validator
+      validator: validator,
+      owned: loaded_owned(validator, best_model, subs)
     }
   end
 
@@ -460,8 +463,18 @@ defmodule Latu.ML.Persistence do
       best_model: best_model,
       validation_metrics: Map.fetch!(metadata, "validationMetrics"),
       sub_models: sub_models,
-      validator: validator
+      validator: validator,
+      owned: loaded_owned(validator, best_model, sub_models)
     }
+  end
+
+  # A loaded search owns everything it read: the winner, any sub-models, and the estimator's own
+  # cached stages (a pipeline estimator can carry a fitted stage). None were supplied by the
+  # caller — unlike a fitted search — so `delete/1` frees them all.
+  defp loaded_owned(validator, best_model, sub_models) do
+    [best_model, validator.estimator | List.wrap(sub_models)]
+    |> Cache.collected()
+    |> Enum.uniq_by(& &1.ref)
   end
 
   defp load_pipeline(session, kind, path) do

@@ -3,6 +3,44 @@
 `latu_ml` follows [Semantic Versioning](https://semver.org). Before 1.0, a minor version may
 rename or remove; each such change is listed here with the migration in one line.
 
+## 0.4.0 — 2026-09-18
+
+Fixes from a third review. The `latu` floor moves to `~> 0.8`, which is what makes this a minor; one
+behaviour changed, with the migration below.
+
+**The `latu` requirement is now `~> 0.8`.** `delete/1` and the search now identify a session by
+server, user and id together — `Latu.Session.identity/1`, new in Latu 0.8.0 — so that is the floor.
+A two-component `~>` still caps at the next major, so any Latu 0.8+ resolves; if you are below
+0.8.0, upgrade it alongside this.
+
+**Tuning no longer deletes a pre-fitted stage you supplied.** Put a model you already fitted into a
+pipeline and tune that pipeline, and each discarded candidate used to delete every model in the
+fitted pipeline — the stage you passed in included — so the winner's refit failed and your own model
+was gone. A search now tracks what each candidate fit apart from what the caller carried in, and
+releases only the former: while searching, while unwinding an error, and on the winner's refit.
+
+**A raise during a search strands nothing.** An evaluator that raises rather than returns — a param
+kind refused at encoding — used to leak the candidate it had already fitted and leave the fold's two
+frames persisted. The fit is released and the frames unpersisted on a raise as on a returned error,
+and the original exception is re-raised.
+
+**A non-finite fold metric is a named error, not a crash.** A legitimately non-finite score — R² on
+a constant target, which the protocol carries as `:nan` — used to reach fold-metric aggregation and
+raise `ArithmeticError`. It is a `Latu.Error` now, and any collected sub-models are released.
+Migration: match `{:error, %Latu.Error{}}` from `fit/2` where an `ArithmeticError` would have
+escaped before.
+
+**A loaded search owns the estimator it read.** Loading a saved search caches its estimator, its
+winner and any sub-models, but `delete/1` and the load-failure paths freed the winner and sub-models
+and forgot the estimator's own stages. A search result now records the models it owns — a loaded one
+owns everything it read, a fitted one owns its acquisitions but not a stage you carried in — and
+`delete/1` frees exactly those.
+
+**`delete/1` batches by full session, not the id alone.** 0.3.1 sent each reference to the session
+that made it but grouped by `session_id`, so two servers handed the same explicit id were batched
+onto one connection and the second's model survived. It groups by full session identity now — the
+ML side of the same fix in Latu 0.8.0's two-input verbs.
+
 ## 0.3.1 — 2026-09-18
 
 Bug fixes from a follow-up review. No API changes.
