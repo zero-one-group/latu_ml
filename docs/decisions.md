@@ -1268,3 +1268,38 @@ one at a time; the by-name lookup goes through a string-to-module map of the sam
 term as before, checked byte-for-byte against the old module. The floor job is what keeps this
 true, which is what a floor job is for: without it the promise of 1.18 in `mix.exs` would have
 been a compile that never ends.
+
+## 2026-09-18 — Follow-up review: pipeline fit ownership, fold columns, cross-session delete
+
+A review of 0.3.0 (2026-09-17) found five bugs in fitting, tuning, and cache ownership. The fixes
+share a theme the tests now carry: ownership, the rows a predicate actually selects, and
+serialization round trips.
+
+**A failed pipeline fit releases only what it fitted.** The fold put every stage in hand into
+`done` and released `cached_models(done)` on failure, which deleted a model the caller had passed
+in already fitted. Now each stage's *acquired* set is `cached_models(fitted) -- cached_models(stage)`
+by ref, so a carried model (or the models a nested pipeline arrived with) subtracts out and only
+this fit's own models are released. A transformer holds nothing either way. An operation that
+returns no pipeline model never invalidates its input.
+
+**Cleanup covers a raise, not only an `{:error, _}`.** Some builders defer parameter-kind
+validation to literal encoding, which raises mid-fold after an earlier stage has fitted. The fold
+runs inside `try`; a raise releases the acquired set and reraises the original exception with its
+stacktrace. Programmer misuse still raises, but it no longer leaks.
+
+**A fold column is a column, and the draw column is a binary.** `Internal.folds/2` fed `fold_col`
+straight to `Column.equal/2`, where a binary is a literal, so a string `fold_col` compared the word
+to each fold index and Spark refused to cast it. It is coerced with `Column.col/1` now. The random
+`TrainValidationSplit` draw column was `String.to_atom(uid <> "_rand")`, one new atom per validator
+for the life of the node; it stays a binary, referenced through `Column.col/1` and named with
+`Latu.Plan.as/2`.
+
+**`delete/1` groups references by session.** It sent every reference through the first model's
+session and answered `:ok`, so models from other sessions survived. A reference lives in the cache
+of the session that made it, so it now groups by `session_id` and sends one `Delete` per session,
+returning the first error. The single-command optimization stays within a session.
+
+**The loaded-parameter decoder recurses into nested arrays.** `Bucketizer.splitsArray` is the
+registry's one nested param (`array<array<double>>`). The encoder wrote it, but `element_type/1`
+only knew scalar kinds, so a saved Bucketizer would not load. It now recurses to the depth the
+encoder writes.

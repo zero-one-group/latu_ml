@@ -137,7 +137,7 @@ defmodule Latu.ML.Internal do
   """
   def folds(%DataFrame{} = frame, %CrossValidator{fold_col: nil} = validator) do
     drawn = with_draw(frame, validator.uid, validator.seed)
-    draw = draw_column(validator.uid)
+    draw = draw_ref(validator.uid)
     height = 1.0 / validator.num_folds
 
     for index <- 0..(validator.num_folds - 1) do
@@ -156,28 +156,38 @@ defmodule Latu.ML.Internal do
   # fold before any fitting happens; Latu lets the fit fail on its own rows instead. See
   # `docs/deviations.md`.
   def folds(%DataFrame{} = frame, %CrossValidator{fold_col: fold_col} = validator) do
+    # A name, so a string names the column: handed to the operator bare, it would be a
+    # literal, and every fold would compare the word to an index.
+    column = Column.col(fold_col)
+
     for index <- 0..(validator.num_folds - 1) do
-      {Latu.filter(frame, Column.not_equal(fold_col, index)),
-       Latu.filter(frame, Column.equal(fold_col, index))}
+      {Latu.filter(frame, Column.not_equal(column, index)),
+       Latu.filter(frame, Column.equal(column, index))}
     end
   end
 
   def folds(%DataFrame{} = frame, %TrainValidationSplit{} = validator) do
     drawn = with_draw(frame, validator.uid, validator.seed)
-    held = Column.greater_equal(draw_column(validator.uid), validator.train_ratio)
+    held = Column.greater_equal(draw_ref(validator.uid), validator.train_ratio)
 
     [{Latu.filter(drawn, Column.not_(held)), Latu.filter(drawn, held)}]
   end
 
-  # PySpark names it `<uid>_rand`, and the name matters: it is what both filters read. The atom
-  # is derived from a uid this package generated, so the set is bounded by the validators
-  # fitted rather than by anything a caller can spell.
-  defp draw_column(uid), do: String.to_atom(uid <> "_rand")
+  # PySpark names it `<uid>_rand`, and the name matters: it is what both filters read. A binary,
+  # never an atom: a uid is fresh per validator, so an atom here would grow a long-lived node's
+  # atom table for as long as validators are built, and nothing reclaims those.
+  defp draw_column(uid), do: uid <> "_rand"
+
+  # The draw column as a reference, which is what a predicate needs: a bare binary here would be
+  # a string literal, and the fold comparison would cast the column name to a double. Only
+  # `with_draw` uses the bare name, to name the projected column.
+  defp draw_ref(uid), do: Column.col(draw_column(uid))
 
   defp with_draw(%DataFrame{} = frame, uid, seed) do
     draw = if seed, do: Latu.Functions.rand(seed), else: Latu.Functions.rand()
 
-    Latu.select(frame, [Column.star(), {draw_column(uid), draw}])
+    # `Latu.Plan.as/2` rather than the `{name, expr}` sugar, which takes an atom name only.
+    Latu.select(frame, [Column.star(), Latu.Plan.as(draw, draw_column(uid))])
   end
 
   @doc """

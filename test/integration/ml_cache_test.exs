@@ -24,6 +24,10 @@ defmodule Latu.ML.CacheTest do
     session = Latu.connect!(@url)
     on_exit(fn -> Latu.disconnect(session, release: true) end)
 
+    %{session: session, features: features_in(session)}
+  end
+
+  defp features_in(session) do
     base =
       Latu.sql!(session, """
       SELECT * FROM VALUES (0.0, 0.0, 1.1), (0.0, 0.1, 1.0), (1.0, 2.0, 0.1), (1.0, 2.1, 0.2)
@@ -31,8 +35,7 @@ defmodule Latu.ML.CacheTest do
       """)
 
     assembler = Feature.vector_assembler(input_cols: [:x1, :x2], output_col: :features)
-
-    %{session: session, features: ML.transform(assembler, base)}
+    ML.transform(assembler, base)
   end
 
   # The bang twin on purpose: a budget that silently failed to apply would make every test in
@@ -42,6 +45,26 @@ defmodule Latu.ML.CacheTest do
   end
 
   defp fit(features), do: ML.fit(Classification.logistic_regression(max_iter: 2), features)
+
+  # The 2026-09-17 follow-up review: `delete/1` sent every reference through the first model's
+  # session and answered :ok, and the other session's model stayed. A reference lives in the
+  # cache of the session that made it, so the delete goes to each.
+  test "deleting models from two sessions deletes in both", %{session: one, features: features} do
+    two = Latu.connect!(@url)
+    on_exit(fn -> Latu.disconnect(two, release: true) end)
+
+    {:ok, before_one} = ML.cache_info(one)
+    {:ok, before_two} = ML.cache_info(two)
+
+    assert {:ok, m1} = fit(features)
+    assert {:ok, m2} = fit(features_in(two))
+    assert :ok = ML.delete([m1, m2])
+
+    {:ok, after_one} = ML.cache_info(one)
+    {:ok, after_two} = ML.cache_info(two)
+    assert length(after_one) == length(before_one)
+    assert length(after_two) == length(before_two)
+  end
 
   # The finding that matters most for ML3: a model pushed out of memory is **not gone**. The
   # server writes it to driver-local disk and a fetch still answers, with nothing the client can

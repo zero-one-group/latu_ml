@@ -166,4 +166,27 @@ defmodule Latu.ML.PersistenceTest do
 
     assert :ok = ML.delete(model)
   end
+
+  # The 2026-09-17 follow-up review: `Bucketizer.splitsArray` is the registry's one nested
+  # param (`array<array<double>>`). The encoder wrote it, but the loaded-param decoder only
+  # knew scalar element types, so a saved Bucketizer would not load. A round trip is the only
+  # thing that exercises both sides of that asymmetry.
+  test "a Bucketizer's nested splits_array survives save and load", context do
+    %{session: session, path: path} = context
+
+    splits = [[-10.0, 0.0, 10.0], [-20.0, 0.0, 20.0]]
+
+    bucketizer =
+      Feature.bucketizer(
+        input_cols: [:x1, :x2],
+        output_cols: [:x1_b, :x2_b],
+        splits_array: splits
+      )
+
+    assert :ok = ML.save(bucketizer, path, session: session)
+    assert {:ok, loaded} = ML.load(session, :bucketizer, path)
+
+    values = Map.new(loaded.params, fn {wire, _type, value} -> {wire, value} end)
+    assert values["splitsArray"] == splits
+  end
 end
