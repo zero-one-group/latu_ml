@@ -225,7 +225,8 @@ defmodule Latu.ML do
         avg_metrics: Enum.map(across, &mean/1),
         std_metrics: Enum.map(across, &population_std/1),
         sub_models: sub_models,
-        validator: validator
+        validator: validator,
+        owned: owned_after_fit(validator, best_model, sub_models)
       }
     end)
   end
@@ -240,7 +241,8 @@ defmodule Latu.ML do
         best_model: best_model,
         validation_metrics: hd(scored),
         sub_models: sub_models && hd(sub_models),
-        validator: validator
+        validator: validator,
+        owned: owned_after_fit(validator, best_model, sub_models)
       }
     end)
   end
@@ -500,7 +502,7 @@ defmodule Latu.ML do
         {:ok, model}
 
       {:error, error} ->
-        Cache.release(Cache.collected(kept))
+        release_acquired(kept, carried_refs(validator))
         {:error, error}
     end
   end
@@ -509,14 +511,24 @@ defmodule Latu.ML do
   defp fold_metrics(%TrainValidationSplit{}, scored), do: hd(scored)
 
   defp score_folds(validator, folds) do
+    carried = carried_refs(validator)
+
     folds
     |> Enum.reduce_while({:ok, [], []}, fn {train, validation}, {:ok, scored, kept} ->
-      case score_fold(validator, train, validation) do
+      try do
+        score_fold(validator, train, validation)
+      catch
+        # A raise from inside a fold has already released that fold's own candidate and kept
+        # below; here we give back the folds that finished before it, then re-raise.
+        kind, reason ->
+          release_acquired(kept, carried)
+          :erlang.raise(kind, reason, __STACKTRACE__)
+      else
         {:ok, metrics, models} ->
           {:cont, {:ok, [metrics | scored], [models | kept]}}
 
         {:error, error, models} ->
-          {:halt, {:error, error, Cache.collected([models | kept])}}
+          {:halt, {:error, error, [models | kept]}}
       end
     end)
     |> case do
@@ -524,7 +536,7 @@ defmodule Latu.ML do
         {:ok, Enum.reverse(scored), Enum.reverse(kept)}
 
       {:error, error, orphans} ->
-        Cache.release(orphans)
+        release_acquired(orphans, carried)
         {:error, error}
     end
   end
@@ -551,10 +563,15 @@ defmodule Latu.ML do
   end
 
   defp scored(validator, train, validation) do
-    result = score_grid(validator, train, validation)
-
-    Latu.unpersist(train)
-    Latu.unpersist(validation)
+    result =
+      try do
+        score_grid(validator, train, validation)
+      after
+        # The two frames are persisted for the fold's duration; they go back however the grid
+        # leaves — a value, a returned error, or a raise passing through.
+        Latu.unpersist(train)
+        Latu.unpersist(validation)
+      end
 
     case result do
       {:ok, metrics, kept} -> {:ok, Enum.reverse(metrics), Enum.reverse(kept)}
@@ -563,33 +580,91 @@ defmodule Latu.ML do
   end
 
   defp score_grid(validator, train, validation) do
+    carried = carried_refs(validator)
+
     Enum.reduce_while(validator.param_maps, {:ok, [], []}, fn param_map, {:ok, metrics, kept} ->
       searched = Internal.apply_params(validator.estimator, param_map)
 
       case fit(searched, train) do
         {:ok, model} ->
-          case evaluate(validator.evaluator, transform(model, validation)) do
-            {:ok, metric} ->
-              # A sub-model nobody asked for is a cache entry with no owner, so it goes back
-              # the moment its metric is read. A 5-by-6 search then holds one at a time rather
-              # than thirty. `collect_sub_models: true` keeps them, and they become the
-              # caller's — `delete/1` on the returned model releases them.
-              if validator.collect_sub_models do
-                {:cont, {:ok, [metric | metrics], [model | kept]}}
-              else
-                Cache.release(model)
-                {:cont, {:ok, [metric | metrics], kept}}
-              end
-
-            {:error, error} ->
-              Cache.release(model)
-              {:halt, {:error, error, kept}}
-          end
+          score_candidate(validator, model, validation, metrics, kept, carried)
 
         {:error, error} ->
           {:halt, {:error, error, kept}}
       end
     end)
+  end
+
+  # One fitted candidate, scored. A sub-model nobody asked for is a cache entry with no owner, so
+  # it goes back the moment its metric is read; a 5-by-6 search then holds one at a time rather
+  # than thirty. `collect_sub_models: true` keeps them for the caller. Only what this fit acquired
+  # is ever released — a stage the caller handed in already fitted is theirs and stays. An
+  # evaluator that raises rather than returns (a param kind refused at encoding) releases the same
+  # acquisitions a returned error would — this candidate and the fold's kept — and re-raises.
+  defp score_candidate(validator, model, validation, metrics, kept, carried) do
+    try do
+      evaluate(validator.evaluator, transform(model, validation))
+    catch
+      kind, reason ->
+        release_acquired([model | kept], carried)
+        :erlang.raise(kind, reason, __STACKTRACE__)
+    else
+      {:ok, metric} ->
+        cond do
+          not finite?(metric) ->
+            release_acquired([model], carried)
+            {:halt, {:error, non_finite_error(metric), kept}}
+
+          validator.collect_sub_models ->
+            {:cont, {:ok, [metric | metrics], [model | kept]}}
+
+          true ->
+            release_acquired([model], carried)
+            {:cont, {:ok, [metric | metrics], kept}}
+        end
+
+      {:error, error} ->
+        release_acquired([model], carried)
+        {:halt, {:error, error, kept}}
+    end
+  end
+
+  # The references the caller supplied already fitted — a pipeline stage handed over as a model. A
+  # search fits around them and must never release them: they outlive it and the caller holds them.
+  # Everything a candidate fits itself is the search's to free, while searching or unwinding.
+  defp carried_refs(validator) do
+    validator.estimator |> Cache.cached_models() |> MapSet.new(& &1.ref)
+  end
+
+  defp acquired_only(models, carried) do
+    models
+    |> Cache.collected()
+    |> Enum.reject(&MapSet.member?(carried, &1.ref))
+    |> Enum.uniq_by(& &1.ref)
+  end
+
+  defp release_acquired(models, carried) do
+    Cache.release(acquired_only(models, carried))
+  end
+
+  # What a fitted search owns and `delete/1` frees: everything it acquired — the winner refit and
+  # any collected sub-models — but never a pre-fitted stage the caller carried in.
+  defp owned_after_fit(validator, best_model, sub_models) do
+    acquired_only([best_model | List.wrap(sub_models)], carried_refs(validator))
+  end
+
+  # The non-finite doubles the protocol can carry (`protobuf` spells them as atoms — a BEAM float
+  # cannot be one). A search cannot order or average them, so it stops with a named error rather
+  # than crashing in `Enum.sum/1` during aggregation.
+  defp finite?(metric) when metric in [:nan, :infinity, :negative_infinity], do: false
+  defp finite?(_metric), do: true
+
+  defp non_finite_error(metric) do
+    Error.new(
+      :decode,
+      "a candidate scored #{inspect(metric)}, which is not finite; a search cannot order or " <>
+        "average it. Check the metric and the fold data, or score candidates with evaluate/2."
+    )
   end
 
   defp transpose([]), do: []
@@ -1148,19 +1223,19 @@ defmodule Latu.ML do
   def delete(models) when is_list(models) do
     Enum.each(models, &deletable!/1)
 
-    case Cache.cached_models(models) do
+    case Cache.owned_models(models) do
       # Every element held nothing on the server — a pipeline of transformers, or a search
       # whose models have already been released.
       [] ->
         :ok
 
       cached ->
-        # A reference lives in the cache of the session that made it, so one Delete per
-        # session — through whichever session came first, the others' models stayed and this
-        # still answered :ok. Within a session it is one command for all of them.
+        # A reference lives in the cache of the session that made it, so one Delete per session —
+        # keyed by full session identity, not the id alone, so two servers handed the same explicit
+        # id are not batched onto one connection. Within a session it is one command for all.
         cached
-        |> Enum.group_by(& &1.session.session_id)
-        |> Enum.reduce_while(:ok, fn {_session_id, models}, :ok ->
+        |> Enum.group_by(&Latu.Session.identity(&1.session))
+        |> Enum.reduce_while(:ok, fn {_identity, models}, :ok ->
           session = hd(models).session
           refs = Enum.map(models, & &1.ref)
 

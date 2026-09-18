@@ -14,7 +14,7 @@ defmodule Latu.ML.TrainValidationSplitModel do
   alias Latu.ML.TrainValidationSplit
 
   @enforce_keys [:uid, :session, :best_model, :validation_metrics, :validator]
-  defstruct [:uid, :session, :best_model, :validation_metrics, :sub_models, :validator]
+  defstruct [:uid, :session, :best_model, :validation_metrics, :sub_models, :validator, :owned]
 
   @type t :: %__MODULE__{
           uid: String.t(),
@@ -22,6 +22,7 @@ defmodule Latu.ML.TrainValidationSplitModel do
           best_model: CrossValidatorModel.fitted(),
           validation_metrics: [float()],
           sub_models: [CrossValidatorModel.fitted()] | nil,
-          validator: TrainValidationSplit.t()
+          validator: TrainValidationSplit.t(),
+          owned: [Latu.ML.Model.t()] | nil
         }
 end
