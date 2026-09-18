@@ -33,6 +33,10 @@ defmodule Latu.MLTest do
     fn _uid, name -> Enum.find(validator.estimator.known, &(&1.name == name)).wire end
   end
 
+  defp condition_of(%DataFrame{plan: %Proto.Relation{rel_type: {:filter, filter}}}) do
+    filter.condition
+  end
+
   defp project_of(%DataFrame{plan: %Proto.Relation{rel_type: {:filter, filter}}}) do
     case filter.input do
       %Proto.Relation{rel_type: {:project, project}} -> project
@@ -571,9 +575,41 @@ defmodule Latu.MLTest do
     end
 
     test "and it is named for the validator, as PySpark names it", %{validator: validator} do
-      [{train, _validation} | _rest] = Internal.folds(frame(), validator)
+      [{train, validation} | _rest] = Internal.folds(frame(), validator)
 
       assert inspect(project_of(train)) =~ validator.uid <> "_rand"
+
+      # The predicate reads the draw column, it does not compare a string. The name became a
+      # binary in the 2026-09-17 follow-up review, and used bare it was a literal Spark then
+      # tried to cast to a double. Walk to the leaf comparison and check its left operand.
+      assert %Proto.Expression{expr_type: {:unresolved_function, conj}} = condition_of(validation)
+      assert conj.function_name == "and"
+      assert [%Proto.Expression{expr_type: {:unresolved_function, ge}} | _] = conj.arguments
+      assert [%Proto.Expression{expr_type: {:unresolved_attribute, attr}} | _] = ge.arguments
+      assert attr.unparsed_identifier == validator.uid <> "_rand"
+    end
+
+    # The draw column used to be `String.to_atom(uid <> "_rand")`, one new atom per validator
+    # for the life of the node (the 2026-09-17 follow-up review). Broken, this is exactly 50.
+    test "building fold plans for fresh validators adds no atoms", %{lr: lr} do
+      build = fn ->
+        validator =
+          ML.train_validation_split(
+            estimator: lr,
+            param_maps: ML.param_grid(lr, reg_param: [0.1]),
+            evaluator: Evaluation.binary_classification_evaluator(),
+            train_ratio: 0.75
+          )
+
+        Internal.folds(frame(), validator)
+      end
+
+      # Warm the code paths first, so what is measured is the per-validator cost alone.
+      for _ <- 1..3, do: build.()
+      before = :erlang.system_info(:atom_count)
+      for _ <- 1..50, do: build.()
+
+      assert :erlang.system_info(:atom_count) - before < 50
     end
 
     test "a fold_col cut adds no draw at all", %{lr: lr} do
@@ -590,6 +626,16 @@ defmodule Latu.MLTest do
 
       assert project_of(train) == nil
       assert project_of(validation) == nil
+
+      # The string names the column. Fed to the operator bare it was the literal "fold", and
+      # Spark refused to cast the word to a fold index (the 2026-09-17 follow-up review).
+      assert %Proto.Expression{expr_type: {:unresolved_function, call}} = condition_of(validation)
+      assert call.function_name == "=="
+
+      assert [%Proto.Expression{expr_type: {:unresolved_attribute, attr}}, _index] =
+               call.arguments
+
+      assert attr.unparsed_identifier == "fold"
     end
 
     test "a train/validation split is one pair, not num_folds of them", %{lr: lr} do

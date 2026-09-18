@@ -177,6 +177,16 @@ defmodule Latu.ML.Result do
   defp element_type(%{kind: {:integer, _}}), do: :int
   defp element_type(%{kind: {:long, _}}), do: :long
   defp element_type(%{kind: {kind, _}}) when kind in [:float, :double], do: :double
+
+  # A nested array, to the depth the encoder writes: `Bucketizer.splitsArray` is
+  # `array<array<double>>`, so a loaded splitsArray must decode the inner array too.
+  defp element_type(%{kind: {:array, array}}) do
+    case element_type(array.element_type) do
+      nil -> nil
+      inner -> {:list, inner}
+    end
+  end
+
   defp element_type(_other), do: nil
 
   defp array_type(%{kind: {:array, array}}), do: array.element_type

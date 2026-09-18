@@ -3,6 +3,27 @@
 `latu_ml` follows [Semantic Versioning](https://semver.org). Before 1.0, a minor version may
 rename or remove; each such change is listed here with the migration in one line.
 
+## 0.3.1 — 2026-09-18
+
+Bug fixes from a follow-up review. No API changes.
+
+**A failed pipeline fit releases only what it fitted.** A pipeline may carry a model the caller
+already fitted, and a later stage failing used to delete it. Each stage's newly cached models are
+now tracked apart from carried ones, and only the former are released, on a returned error and on a
+raise alike.
+
+**Cross-validation with a string `fold_col` works.** The fold column name was compared as a string
+literal, so a `fold_col` like `"fold"` made Spark try to cast the word to a number. It is a column
+reference now. The k-fold and `TrainValidationSplit` random draw column is a binary rather than a
+fresh atom per validator, so building validators no longer grows the atom table.
+
+**`delete/1` deletes across sessions.** It sent every reference through the first model's session
+and reported success, so models from other sessions survived. It now groups references by session
+and sends one delete to each.
+
+**A Bucketizer's `splits_array` loads.** The nested `array<array<double>>` param saved, but the
+loaded-parameter decoder knew only scalar element types; it recurses now.
+
 ## 0.3.0 — 2026-09-11
 
 **`Summarizer`.** `Latu.ML.Stat.summary/3` is `aggregate_metrics` over a `Vector` column with

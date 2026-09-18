@@ -167,30 +167,45 @@ defmodule Latu.ML do
   def fit(%Pipeline{} = pipeline, %DataFrame{} = data) do
     last = last_estimator(pipeline.stages)
 
+    # `acquired` is what this fit put in the server cache and nothing else. A stage the caller
+    # handed over already fitted is theirs, so a later failure must not delete it; only the
+    # models fitted here are released. The `catch` is for a stage that raises rather than
+    # returns — a param kind refused at literal encoding — which would otherwise skip the
+    # cleanup and leak what earlier stages had cached. The caller's own raise is re-raised
+    # untouched.
     pipeline.stages
     |> Enum.with_index()
-    |> Enum.reduce_while({[], data}, fn {stage, index}, {done, frame} ->
-      case fit_stage(stage, frame, index, last) do
-        {:ok, fitted, next} -> {:cont, {[fitted | done], next}}
-        {:error, error} -> {:halt, {:error, error, done}}
+    |> Enum.reduce_while({[], [], data}, fn {stage, index}, {done, acquired, frame} ->
+      try do
+        case fit_stage(stage, frame, index, last) do
+          {:ok, fitted, next} ->
+            {:cont, {[fitted | done], acquired_by(stage, fitted) ++ acquired, next}}
+
+          {:error, error} ->
+            {:halt, {:error, error, acquired}}
+        end
+      catch
+        kind, reason -> {:halt, {:raised, kind, reason, __STACKTRACE__, acquired}}
       end
     end)
     |> case do
-      {done, _frame} ->
+      # The tagged failures first: the success value is `{done, acquired, frame}`, whose
+      # `done` is a list, so it never matches the `:error`/`:raised` heads below it.
+      {:error, error, acquired} ->
+        Cache.release(acquired)
+        {:error, error}
+
+      {:raised, kind, reason, stacktrace, acquired} ->
+        Cache.release(acquired)
+        :erlang.raise(kind, reason, stacktrace)
+
+      {done, _acquired, _frame} ->
         {:ok,
          %PipelineModel{
            uid: Internal.uid(Layout.class(:pipeline_model)),
            session: data.session,
            stages: Enum.reverse(done)
          }}
-
-      {:error, error, done} ->
-        # Nothing asked for these, and nothing else will give them back. Only some of the
-        # stages hold anything on the server — a transformer carried through holds nothing —
-        # so `cached_models/1` picks out the ones that do, and they go back in one `Delete`.
-        done |> Enum.flat_map(&Cache.cached_models/1) |> Cache.release()
-
-        {:error, error}
     end
   end
 
@@ -228,6 +243,14 @@ defmodule Latu.ML do
         validator: validator
       }
     end)
+  end
+
+  # What a stage's fit added to the server cache: every model its result holds that the stage
+  # did not already hold. A carried model subtracts itself out, a nested pipeline subtracts the
+  # models it arrived with, and a transformer holds nothing either way.
+  defp acquired_by(stage, fitted) do
+    carried = stage |> Cache.cached_models() |> MapSet.new(& &1.ref)
+    fitted |> Cache.cached_models() |> Enum.reject(&MapSet.member?(carried, &1.ref))
   end
 
   # The index of the last estimator, or -1 where there is none: everything at or before it is
@@ -1132,12 +1155,20 @@ defmodule Latu.ML do
         :ok
 
       cached ->
-        session = hd(cached).session
-        refs = Enum.map(cached, & &1.ref)
+        # A reference lives in the cache of the session that made it, so one Delete per
+        # session — through whichever session came first, the others' models stayed and this
+        # still answered :ok. Within a session it is one command for all of them.
+        cached
+        |> Enum.group_by(& &1.session.session_id)
+        |> Enum.reduce_while(:ok, fn {_session_id, models}, :ok ->
+          session = hd(models).session
+          refs = Enum.map(models, & &1.ref)
 
-        with {:ok, _execution} <- Latu.Client.execute_command(session, Plan.delete(refs)) do
-          :ok
-        end
+          case Latu.Client.execute_command(session, Plan.delete(refs)) do
+            {:ok, _execution} -> {:cont, :ok}
+            {:error, _error} = error -> {:halt, error}
+          end
+        end)
     end
   end
 

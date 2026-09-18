@@ -33,6 +33,12 @@ defmodule Latu.ML.PipelineTest do
     "/tmp/latu_ml_test/#{System.system_time(:second)}-#{System.unique_integer([:positive])}"
   end
 
+  defp colours(session) do
+    Latu.sql!(session, """
+    SELECT * FROM VALUES ('red', 0.0), ('blue', 1.0), ('red', 0.0) AS t(colour, label)
+    """)
+  end
+
   defp pipeline do
     ML.pipeline([
       Feature.vector_assembler(input_cols: [:x1, :x2], output_col: :features),
@@ -70,6 +76,54 @@ defmodule Latu.ML.PipelineTest do
     assert :ok = ML.delete(model)
     {:ok, after_delete} = ML.cache_info(session)
     assert length(after_delete) == length(before)
+  end
+
+  # The 2026-09-17 follow-up review's P1: a failed fit used to release every stage in hand,
+  # the caller's own fitted model included. Only what this fit cached may go.
+  test "a failed fit releases what it cached, never a model the caller carried in", context do
+    %{session: session} = context
+    frame = colours(session)
+
+    indexer = Feature.string_indexer(input_col: :colour, output_col: :colour_idx)
+    assert {:ok, carried} = ML.fit(indexer, frame)
+    assert {:ok, [_ | _]} = carried |> ML.transform(frame) |> Latu.collect()
+    {:ok, with_carried} = ML.cache_info(session)
+
+    # The second stage names a features column that does not exist, so the server refuses
+    # its fit after the carried model has already transformed.
+    failing =
+      ML.pipeline([
+        carried,
+        Classification.logistic_regression(features_col: :missing, max_iter: 2)
+      ])
+
+    assert {:error, %Latu.Error{}} = ML.fit(failing, frame)
+
+    # Still there, still usable: the failure deleted nothing it did not create.
+    assert {:ok, [_ | _]} = carried |> ML.transform(frame) |> Latu.collect()
+    {:ok, after_failure} = ML.cache_info(session)
+    assert length(after_failure) == length(with_carried)
+  end
+
+  # The inverse leak: a stage that *raises* (a param kind refused at literal encoding) used
+  # to skip the cleanup, stranding what earlier stages had fitted. If this test fails at
+  # `ML.pipeline/1` instead of at `fit/2`, the kind check has moved to construction and the
+  # leak it guards against no longer has a path.
+  test "a stage that raises still releases the models fitted before it", context do
+    %{session: session} = context
+    frame = colours(session)
+    {:ok, before} = ML.cache_info(session)
+
+    raising =
+      ML.pipeline([
+        Feature.string_indexer(input_col: :colour, output_col: :idx),
+        Feature.string_indexer(input_col: :colour, output_col: :idx2, handle_invalid: 123)
+      ])
+
+    assert_raise ArgumentError, fn -> ML.fit(raising, frame) end
+
+    {:ok, after_raise} = ML.cache_info(session)
+    assert length(after_raise) == length(before)
   end
 
   test "the fold stops transforming after the last estimator", context do
