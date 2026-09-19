@@ -69,16 +69,20 @@ defmodule Latu.ML.Cache do
     end
   end
 
-  # Collect in order, or give back what was already cached and answer with the first error.
-  # A `Read` caches, so every error path below one owns what it read. That decision lives here
-  # rather than at each fold, because five copies of it is how the sixth came to forget.
+  # Collect in order, or give back what was already cached and answer with the first error, or
+  # give it back and re-raise. A `Read` caches, so every error path below one owns what it read.
+  # That decision lives here rather than at each fold, because five copies of it is how the
+  # sixth came to forget. Each reader is responsible for its own acquisitions; this holds the
+  # ones already collected.
   def traverse(items, fun) do
     items
     |> Enum.reduce_while({:ok, []}, fn item, {:ok, done} ->
-      case fun.(item) do
-        {:ok, value} -> {:cont, {:ok, [value | done]}}
-        {:error, error} -> {:halt, {:error, error, done}}
-      end
+      guard(done, fn ->
+        case fun.(item) do
+          {:ok, value} -> {:cont, {:ok, [value | done]}}
+          {:error, error} -> {:halt, {:error, error, done}}
+        end
+      end)
     end)
     |> case do
       {:ok, done} ->

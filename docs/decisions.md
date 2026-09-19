@@ -1370,3 +1370,38 @@ holds the winner through the sub-models; `load_evaluator/3` folded into it.
 candidate of a grid, the winner of a saved search and then its evaluator, a transformer carried by
 a nested pipeline. A saved part is spoiled from the client by overwriting its `metadata` with a
 one-row text write, so the test needs no filesystem access to the server.
+
+## 2026-09-19 — Fifth review: the sites the sweep missed, and a refusal before the read
+
+A fifth review found four P2s, three of them the 2026-09-19 rule at sites the sweep had not
+reached and one arithmetic. Nothing new in kind; the rule stands and now covers them.
+
+**The three sites.** `Internal.model_from_helper/4` validated the options after the send, so a
+refused option left a model cached with no handle; the options are checked first, and nothing
+after the send can fail. `Cache.traverse/2` released what it had collected on a returned error and
+not on a raise; each iteration now runs under `guard/2` holding the collected so far, and each
+reader stays responsible for its own. `Persistence.load_searched/6` held the winner through the
+sub-models but nothing held the sub-models through `searched_from/6`; they are guarded there now.
+In the search, the refit's guard moved up to `search/3`, which holds what the folds kept from the
+last fold to the returned value, through winner selection, refit, aggregation and assembly; the
+winner is held from its refit through the assembly. `refit/4` keeps only its returned-error
+release.
+
+**A refusal before the read.** Two of the reproductions were malformed metadata: a `null` in a
+pipeline's `stageUids`, a search without its `validationMetrics`. Both used to raise in the middle
+of loading. Both are now refused by name before the first `Read`, in `stage_uids/2` and
+`metrics_present/3`: a refusal there has nothing to give back, and it says which key. The guards
+behind them stay, for whatever else can raise once something is cached.
+
+**Aggregation that does not overflow where the answer is representable.** `population_std/1`
+squared each deviation, which overflows a float around `1.0e154`; two fold metrics of `1.0e160`
+and `2.0e160` have a standard deviation of `5.0e159`, and the search raised `ArithmeticError`
+after the refit. Both it and `mean/1` now work over the metrics divided by the largest power of
+two at or below their largest magnitude, capped at `2^1023`. Dividing by a power of two is exact,
+so ordinary metrics come back bit for bit; in `(-2, 2)` no sum, deviation or square can overflow,
+and the smallest subnormal scales up to `1.0` rather than down to `0.0`. Identical metrics answer
+exactly `0.0`. Both moved to `Latu.ML.Internal` so the offline suite can test them: the textbook
+example, the `1.0e160` case, the float maximum as every fold's score up to ten folds, deviations
+that would overflow before they were squared, and the smallest subnormal. This is a deviation,
+recorded: `np.std` answers `inf` for those two metrics, so PySpark's `stdMetrics` and this
+package's differ there.

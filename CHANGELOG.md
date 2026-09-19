@@ -3,6 +3,32 @@
 `latu_ml` follows [Semantic Versioning](https://semver.org). Before 1.0, a minor version may
 rename or remove; each such change is listed here with the migration in one line.
 
+## 0.4.2 — 2026-09-19
+
+Fixes from a fifth review. Three are 0.4.1's shape at sites its sweep missed, one is arithmetic.
+No API changes.
+
+**A helper constructor refused an option acquires nothing.** A `from_labels/3` call with an
+unknown option raised the right `ArgumentError` after the server had already built the model,
+leaving one cached with no handle to delete it by. The options are checked before the send.
+
+**A saved pipeline with a non-string stage uid is refused by name.** A `null` in `stageUids` read
+the first stage into the cache and raised building the second's path. It is refused before
+anything is read, naming the entry. The shared loader traversal also gives back what it has
+collected on a raise, as it did on a returned error.
+
+**A saved search without its metrics is refused by name.** Missing `validationMetrics` (or
+`avgMetrics`) read the winner and every sub-model and raised `KeyError` assembling the result,
+stranding the sub-models. It is refused before anything is read, and the sub-models are held
+through the assembly.
+
+**Fold metrics of any finite magnitude aggregate.** Squaring a deviation of `5.0e159` overflowed a
+float, so a cross-validation over metrics around `1.0e160` raised `ArithmeticError` after
+refitting the winner and stranded every fitted model. `avg_metrics` and `std_metrics` are now
+computed over the metrics divided by a power of two, exact for ordinary values and finite wherever
+the answer is (`np.std` answers `inf` there; `docs/deviations.md`), and the search holds what it
+fitted through aggregation and assembly.
+
 ## 0.4.1 — 2026-09-19
 
 Fixes from a fourth review, all one shape: a model entered the server cache at one step and the

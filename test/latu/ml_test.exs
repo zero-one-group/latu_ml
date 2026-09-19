@@ -767,6 +767,63 @@ defmodule Latu.MLTest do
     end
   end
 
+  describe "fold-metric aggregation" do
+    @max_float 1.7976931348623157e308
+    @min_float 5.0e-324
+
+    defp close?(got, want), do: abs(got / want - 1.0) < 1.0e-12
+
+    test "the mean and population standard deviation, on the textbook example" do
+      values = [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0]
+
+      assert Internal.mean(values) == 5.0
+      assert Internal.population_std(values) == 2.0
+    end
+
+    test "ordinary metrics come back as the plain sum over the count" do
+      values = [0.123, 0.456, 0.789]
+
+      assert Internal.mean(values) == (0.123 + 0.456 + 0.789) / 3
+    end
+
+    test "identical metrics have exactly no deviation, whatever their count" do
+      assert Internal.population_std([0.7, 0.7, 0.7]) == 0.0
+      assert Internal.population_std([@max_float, @max_float, @max_float]) == 0.0
+      assert Internal.population_std([@min_float, @min_float]) == 0.0
+    end
+
+    # Squaring a deviation of 5.0e159 overflows a float, where the answer does not. `np.std`
+    # answers `inf` here; a search that raised on it stranded every model it had fitted.
+    test "neither overflows where the answer is representable" do
+      values = [1.0e160, 2.0e160]
+
+      assert close?(Internal.mean(values), 1.5e160)
+      assert close?(Internal.population_std(values), 5.0e159)
+    end
+
+    # The float boundaries, each with a representable answer: the maximum itself as every fold's
+    # score, up to ten folds; deviations that would overflow before they were squared; the
+    # smallest subnormal, which dividing by the count first would round to zero.
+    test "the boundaries: the largest and smallest floats" do
+      for count <- 1..10 do
+        assert close?(Internal.mean(List.duplicate(@max_float, count)), @max_float)
+        assert close?(Internal.mean(List.duplicate(-@max_float, count)), -@max_float)
+      end
+
+      assert Internal.mean([-@max_float, @max_float]) == 0.0
+      assert close?(Internal.population_std([-@max_float, @max_float]), @max_float)
+
+      assert close?(
+               Internal.population_std([-1.5e308, -1.5e308, 1.5e308]),
+               1.4142135623730951e308
+             )
+
+      assert Internal.mean([@min_float, @min_float]) == @min_float
+      assert Internal.mean([0.0, 0.0, 0.0]) == 0.0
+      assert Internal.population_std([0.0, -0.0, 0.0]) == 0.0
+    end
+  end
+
   describe "the grid a saved search carries" do
     # Spark stores a grid entry as `parent`, `name`, `value`, `isJson` — and the value is JSON
     # *inside* a JSON document, so 0.5 is the string "0.5" and not the number. That is the

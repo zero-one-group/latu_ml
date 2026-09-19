@@ -209,14 +209,14 @@ defmodule Latu.ML do
       # Mean and **population** standard deviation across folds, one pair per param map.
       # `np.std`'s default is `ddof=0` and PySpark takes the default, so a sample standard
       # deviation here would disagree with PySpark by a factor no test would obviously catch.
-      across = transpose(scored)
+      across = Internal.transpose(scored)
 
       %CrossValidatorModel{
         uid: Internal.uid("org.apache.spark.ml.tuning.CrossValidatorModel"),
         session: data.session,
         best_model: best_model,
-        avg_metrics: Enum.map(across, &mean/1),
-        std_metrics: Enum.map(across, &population_std/1),
+        avg_metrics: Enum.map(across, &Internal.mean/1),
+        std_metrics: Enum.map(across, &Internal.population_std/1),
         sub_models: sub_models,
         validator: validator,
         owned: owned_after_fit(validator, best_model, sub_models)
@@ -487,33 +487,43 @@ defmodule Latu.ML do
   # One search, both kinds. `assemble` is the only difference: what a fold's scores mean.
   defp search(validator, %DataFrame{} = data, assemble) do
     Internal.covered!(validator)
+    carried = carried_refs(validator)
 
-    with {:ok, scored, kept} <- score_folds(validator, Internal.folds(data, validator)),
-         {:ok, best} <- refit(validator, data, scored, kept) do
-      {:ok, assemble.(best, scored, if(validator.collect_sub_models, do: kept))}
+    with {:ok, scored, kept} <- score_folds(validator, Internal.folds(data, validator)) do
+      # The search holds what the folds kept from here to the returned value: through picking
+      # the winner, refitting it and assembling the result. The winner is the level below, held
+      # from its refit through the assembly.
+      Cache.guard(acquired_only(kept, carried), fn ->
+        with {:ok, best} <- refit(validator, data, scored, kept) do
+          Cache.guard(acquired_only([best], carried), fn ->
+            {:ok, assemble.(best, scored, if(validator.collect_sub_models, do: kept))}
+          end)
+        end
+      end)
     end
   end
 
-  # The winner is refit on everything. A failure here, returned or raised, has to give back what
-  # the folds kept, because nothing else will — the caller is holding an error, not a model.
+  # The winner is refit on everything. A returned error here has to give back what the folds
+  # kept, because nothing else will — the caller is holding an error, not a model. A raise is
+  # `search/3`'s to clean up.
   defp refit(validator, data, scored, kept) do
     index = best_of(fold_metrics(validator, scored), validator.evaluator)
     param_map = Enum.at(validator.param_maps, index)
-    carried = carried_refs(validator)
 
-    Cache.guard(acquired_only(kept, carried), fn ->
-      case fit(Internal.apply_params(validator.estimator, param_map), data) do
-        {:ok, model} ->
-          {:ok, model}
+    case fit(Internal.apply_params(validator.estimator, param_map), data) do
+      {:ok, model} ->
+        {:ok, model}
 
-        {:error, error} ->
-          release_acquired(kept, carried)
-          {:error, error}
-      end
-    end)
+      {:error, error} ->
+        release_acquired(kept, carried_refs(validator))
+        {:error, error}
+    end
   end
 
-  defp fold_metrics(%CrossValidator{}, scored), do: scored |> transpose() |> Enum.map(&mean/1)
+  defp fold_metrics(%CrossValidator{}, scored) do
+    scored |> Internal.transpose() |> Enum.map(&Internal.mean/1)
+  end
+
   defp fold_metrics(%TrainValidationSplit{}, scored), do: hd(scored)
 
   defp score_folds(validator, folds) do
@@ -670,17 +680,6 @@ defmodule Latu.ML do
       "a candidate scored #{inspect(metric)}, which is not finite; a search cannot order or " <>
         "average it. Check the metric and the fold data, or score candidates with evaluate/2."
     )
-  end
-
-  defp transpose([]), do: []
-  defp transpose(rows), do: rows |> Enum.zip() |> Enum.map(&Tuple.to_list/1)
-
-  defp mean(values), do: Enum.sum(values) / length(values)
-
-  defp population_std(values) do
-    average = mean(values)
-
-    :math.sqrt(Enum.sum(Enum.map(values, &((&1 - average) * (&1 - average)))) / length(values))
   end
 
   @doc """
