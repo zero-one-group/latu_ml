@@ -255,6 +255,66 @@ defmodule Latu.ML.Internal do
   defp uids_of(%{uid: uid}) when is_binary(uid), do: [uid]
   defp uids_of(_operator), do: []
 
+  @doc "Fold scores as one list per param map, from one list per fold."
+  def transpose([]), do: []
+  def transpose(rows), do: rows |> Enum.zip() |> Enum.map(&Tuple.to_list/1)
+
+  @doc """
+  The mean of fold metrics, finite wherever the answer is representable.
+
+  The values are divided by a power of two at or below the largest magnitude, which is exact
+  and leaves them in `(-2, 2)`; the mean is taken there and scaled back. `np.mean` sums the raw
+  values, which overflows first.
+  """
+  def mean(values) do
+    case scaled(values) do
+      nil -> 0.0
+      {scale, scaled} -> scale * (Enum.sum(scaled) / length(scaled))
+    end
+  end
+
+  @doc """
+  The population standard deviation of fold metrics — `np.std`'s default `ddof=0`, which PySpark
+  takes — finite wherever the answer is representable.
+
+  Scaled as `mean/1` is, so no deviation and no squared deviation can overflow: finite metrics
+  around `1.0e160` have a finite standard deviation here where `np.std` answers `inf`. Identical
+  metrics have exactly none, where a rounded mean would leave `np.std` an ulp or so.
+  `docs/deviations.md`.
+  """
+  def population_std(values) do
+    case scaled(values) do
+      nil ->
+        0.0
+
+      {scale, scaled} ->
+        case Enum.uniq(scaled) do
+          [_same] ->
+            0.0
+
+          _spread ->
+            average = Enum.sum(scaled) / length(scaled)
+            squares = Enum.map(scaled, &((&1 - average) * (&1 - average)))
+            scale * :math.sqrt(Enum.sum(squares) / length(scaled))
+        end
+    end
+  end
+
+  # The values over the largest power of two at or below their largest magnitude, capped at
+  # 2^1023 so that it exists. Dividing by a power of two is exact, so ordinary metrics come back
+  # bit for bit, and the smallest subnormal scales up to 1.0 rather than down to 0.0. All-zero
+  # values have nothing to scale, and answer nil.
+  defp scaled(values) do
+    case values |> Enum.map(&abs/1) |> Enum.max() do
+      largest when largest == 0.0 ->
+        nil
+
+      largest ->
+        scale = :math.pow(2.0, min(Float.floor(:math.log2(largest)), 1023.0))
+        {scale, Enum.map(values, &(&1 / scale))}
+    end
+  end
+
   @meta_algorithms [
     :pipeline,
     :pipeline_model,
@@ -977,7 +1037,8 @@ defmodule Latu.ML.Internal do
   constructor is the other way round, and this is where the uid is made.
 
   `opts` are params set on the model afterwards, as PySpark's own `model.setInputCol(...)`
-  does, checked against that model class's own table.
+  does, checked against that model class's own table — before the send, because a refusal
+  after it would leave a model in the server cache that the caller has no handle to.
 
   The send is `Latu.ML`'s, not this module's — the same split `attribute/4` follows, and the
   layering test is what holds it.
@@ -993,9 +1054,11 @@ defmodule Latu.ML.Internal do
         nil -> []
       end
 
+    params = params!(opts, known)
+
     with {:ok, %Model{} = model} <-
            Latu.ML.helper(session, name, [uid(row.model_class) | values]) do
-      {:ok, %Model{model | params: params!(opts, known)}}
+      {:ok, %Model{model | params: params}}
     end
   end
 

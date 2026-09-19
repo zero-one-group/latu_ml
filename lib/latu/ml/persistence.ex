@@ -318,6 +318,7 @@ defmodule Latu.ML.Persistence do
     opts = Keyword.validate!(opts, sub_models: false)
 
     with {:ok, metadata} <- Layout.read_metadata(session, path),
+         :ok <- metrics_present(kind, metadata, path),
          {:ok, estimator} <- load_stage(session, Layout.part_path(path, :estimator)) do
       # The estimator is cached from here — a pipeline estimator can carry a fitted stage — and a
       # caller left holding an error owns none of it, whichever part below refuses or raises.
@@ -338,14 +339,39 @@ defmodule Latu.ML.Persistence do
     end
   end
 
+  # The metrics a fitted search's result is built from, checked before anything is read into
+  # the cache: a refusal here has nothing to give back, and it names the key.
+  defp metrics_present(kind, metadata, path) do
+    key =
+      case kind do
+        :cross_validator_model -> "avgMetrics"
+        :train_validation_split_model -> "validationMetrics"
+        _unfitted -> nil
+      end
+
+    if is_nil(key) or Map.has_key?(metadata, key) do
+      :ok
+    else
+      {:error,
+       %Error{
+         kind: :decode,
+         message:
+           "the metadata at #{path} names no #{key}, so it is not a saved #{Layout.class(kind)}"
+       }}
+    end
+  end
+
   # The winner is cached from the moment it loads; a sub-models refusal (`sub_models: true`
-  # against a directory saved without them, most likely) gives it back. The estimator's stages are
-  # the level above's.
+  # against a directory saved without them, most likely) gives it back. The sub-models are
+  # cached from the moment they load, and the assembly is the last thing that can fail while
+  # nothing returned holds them yet. The estimator's stages are the level above's.
   defp load_searched(session, kind, path, validator, metadata, opts) do
     with {:ok, best_model} <- load_stage(session, Layout.part_path(path, :best_model)) do
       Cache.owning([best_model], fn ->
         with {:ok, subs} <- load_sub_models(session, kind, path, validator, metadata, opts) do
-          {:ok, searched_from(kind, session, validator, metadata, best_model, subs)}
+          Cache.guard(List.wrap(subs), fn ->
+            {:ok, searched_from(kind, session, validator, metadata, best_model, subs)}
+          end)
         end
       end)
     end
@@ -471,8 +497,18 @@ defmodule Latu.ML.Persistence do
     end
   end
 
-  defp stage_uids(%{"paramMap" => %{"stageUids" => uids}}, _path) when is_list(uids) do
-    {:ok, uids}
+  defp stage_uids(%{"paramMap" => %{"stageUids" => uids}}, path) when is_list(uids) do
+    if Enum.all?(uids, &is_binary/1) do
+      {:ok, uids}
+    else
+      {:error,
+       %Error{
+         kind: :decode,
+         message:
+           "the metadata at #{path} has a stageUids entry that is not a string " <>
+             "(#{inspect(uids)}), so it is not a saved pipeline"
+       }}
+    end
   end
 
   defp stage_uids(_metadata, path) do
