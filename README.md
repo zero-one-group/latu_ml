@@ -19,8 +19,8 @@ MLlib is DataFrame in, DataFrame out. There is no `fit(x, y)` on tensors: featur
 ```elixir
 def deps do
   [
-    {:latu, "~> 0.7"},
-    {:latu_ml, "~> 0.3"}
+    {:latu, "~> 0.8"},
+    {:latu_ml, "~> 0.4"}
   ]
 end
 ```
@@ -131,11 +131,15 @@ seam.
 
 ## Status
 
-**0.1.0, and pre-1.0 in the way that matters**: a minor version may rename or remove, and
-`CHANGELOG.md` carries the migration in one line when it does.
+**Pre-1.0 in the way that matters**: a minor version may rename or remove, and `CHANGELOG.md`
+carries the migration in one line when it does. `~> 0.4` takes every later 0.x release;
+`~> 0.4.0` takes patches only.
 
 Every runnable operator has been fitted, applied or evaluated against a live 4.2.0 server, with
 every allowlisted attribute answered.
+
+1.0 follows Latu's, and waits for the same thing: an API that has stopped moving in other
+people's hands.
 
 ## Where to go next
 

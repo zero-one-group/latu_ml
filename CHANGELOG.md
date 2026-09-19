@@ -3,6 +3,26 @@
 `latu_ml` follows [Semantic Versioning](https://semver.org). Before 1.0, a minor version may
 rename or remove; each such change is listed here with the migration in one line.
 
+## 0.4.1 — 2026-09-19
+
+Fixes from a fourth review, all one shape: a model entered the server cache at one step and the
+cleanup that knew about it sat at the next step, or one level up. No API changes.
+
+**A raise while fitting a later search candidate strands nothing.** With
+`collect_sub_models: true`, a param kind refused at encoding on the second candidate
+(`max_iter: [2, "bad"]`) used to leave the first candidate's model cached. The fold's kept
+sub-models are released on the way out; the raise is still yours.
+
+**A load that fails after the estimator keeps nothing.** Loading a saved search reads the
+estimator first, and a pipeline estimator can carry a fitted stage. A winner whose directory would
+not read left that stage cached; now every refusal after the estimator, the winner included, gives
+it back.
+
+**A nested pipeline that raises after fitting strands nothing.** An inner pipeline's models exist
+before the outer fit has recorded them, so a transformer it carried whose param kind is refused at
+encoding (`sql_transformer(statement: 123)`) stranded an inner model. The stage that fitted them
+now gives them back.
+
 ## 0.4.0 — 2026-09-18
 
 Fixes from a third review. The `latu` floor moves to `~> 0.8`, which is what makes this a minor; one

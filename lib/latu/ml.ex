@@ -169,14 +169,13 @@ defmodule Latu.ML do
 
     # `acquired` is what this fit put in the server cache and nothing else. A stage the caller
     # handed over already fitted is theirs, so a later failure must not delete it; only the
-    # models fitted here are released. The `catch` is for a stage that raises rather than
-    # returns — a param kind refused at literal encoding — which would otherwise skip the
-    # cleanup and leak what earlier stages had cached. The caller's own raise is re-raised
-    # untouched.
+    # models fitted here are released. `Cache.guard/2` covers a stage that raises rather than
+    # returns — a param kind refused at literal encoding — for what earlier stages cached; the
+    # stage's own acquisitions are `fit_stage/4`'s to give back.
     pipeline.stages
     |> Enum.with_index()
     |> Enum.reduce_while({[], [], data}, fn {stage, index}, {done, acquired, frame} ->
-      try do
+      Cache.guard(acquired, fn ->
         case fit_stage(stage, frame, index, last) do
           {:ok, fitted, next} ->
             {:cont, {[fitted | done], acquired_by(stage, fitted) ++ acquired, next}}
@@ -184,20 +183,14 @@ defmodule Latu.ML do
           {:error, error} ->
             {:halt, {:error, error, acquired}}
         end
-      catch
-        kind, reason -> {:halt, {:raised, kind, reason, __STACKTRACE__, acquired}}
-      end
+      end)
     end)
     |> case do
-      # The tagged failures first: the success value is `{done, acquired, frame}`, whose
-      # `done` is a list, so it never matches the `:error`/`:raised` heads below it.
+      # The tagged failure first: the success value is `{done, acquired, frame}`, whose `done`
+      # is a list, so it never matches the `:error` head.
       {:error, error, acquired} ->
         Cache.release(acquired)
         {:error, error}
-
-      {:raised, kind, reason, stacktrace, acquired} ->
-        Cache.release(acquired)
-        :erlang.raise(kind, reason, stacktrace)
 
       {done, _acquired, _frame} ->
         {:ok,
@@ -274,8 +267,18 @@ defmodule Latu.ML do
   defp fit_stage(stage, frame, index, last) do
     if estimator?(stage) do
       with {:ok, fitted} <- fit(stage, frame) do
-        # The last estimator's own output is never needed: nothing after it is fitted.
-        {:ok, fitted, if(index < last, do: transform(fitted, frame), else: frame)}
+        # The stage's models are in the cache from here and the fold has not recorded them yet,
+        # so a transform that raises (a nested pipeline carrying a transformer whose param kind
+        # is refused at encoding) gives them back here. The last estimator's own output is never
+        # needed: nothing after it is fitted.
+        next =
+          if index < last do
+            Cache.guard(acquired_by(stage, fitted), fn -> transform(fitted, frame) end)
+          else
+            frame
+          end
+
+        {:ok, fitted, next}
       end
     else
       {:ok, stage, transform(stage, frame)}
@@ -491,20 +494,23 @@ defmodule Latu.ML do
     end
   end
 
-  # The winner is refit on everything. A failure here has to give back what the folds kept,
-  # because nothing else will — the caller is holding an error, not a model.
+  # The winner is refit on everything. A failure here, returned or raised, has to give back what
+  # the folds kept, because nothing else will — the caller is holding an error, not a model.
   defp refit(validator, data, scored, kept) do
     index = best_of(fold_metrics(validator, scored), validator.evaluator)
     param_map = Enum.at(validator.param_maps, index)
+    carried = carried_refs(validator)
 
-    case fit(Internal.apply_params(validator.estimator, param_map), data) do
-      {:ok, model} ->
-        {:ok, model}
+    Cache.guard(acquired_only(kept, carried), fn ->
+      case fit(Internal.apply_params(validator.estimator, param_map), data) do
+        {:ok, model} ->
+          {:ok, model}
 
-      {:error, error} ->
-        release_acquired(kept, carried_refs(validator))
-        {:error, error}
-    end
+        {:error, error} ->
+          release_acquired(kept, carried)
+          {:error, error}
+      end
+    end)
   end
 
   defp fold_metrics(%CrossValidator{}, scored), do: scored |> transpose() |> Enum.map(&mean/1)
@@ -515,21 +521,17 @@ defmodule Latu.ML do
 
     folds
     |> Enum.reduce_while({:ok, [], []}, fn {train, validation}, {:ok, scored, kept} ->
-      try do
-        score_fold(validator, train, validation)
-      catch
-        # A raise from inside a fold has already released that fold's own candidate and kept
-        # below; here we give back the folds that finished before it, then re-raise.
-        kind, reason ->
-          release_acquired(kept, carried)
-          :erlang.raise(kind, reason, __STACKTRACE__)
-      else
-        {:ok, metrics, models} ->
-          {:cont, {:ok, [metrics | scored], [models | kept]}}
+      # A raise inside a fold has released that fold's own candidate and kept below; this level
+      # gives back the folds that finished before it.
+      Cache.guard(acquired_only(kept, carried), fn ->
+        case score_fold(validator, train, validation) do
+          {:ok, metrics, models} ->
+            {:cont, {:ok, [metrics | scored], [models | kept]}}
 
-        {:error, error, models} ->
-          {:halt, {:error, error, [models | kept]}}
-      end
+          {:error, error, models} ->
+            {:halt, {:error, error, [models | kept]}}
+        end
+      end)
     end)
     |> case do
       {:ok, scored, kept} ->
@@ -583,15 +585,19 @@ defmodule Latu.ML do
     carried = carried_refs(validator)
 
     Enum.reduce_while(validator.param_maps, {:ok, [], []}, fn param_map, {:ok, metrics, kept} ->
-      searched = Internal.apply_params(validator.estimator, param_map)
+      # A raise while applying params or fitting this candidate (a param kind refused at
+      # encoding) gives back the sub-models this fold has kept so far.
+      Cache.guard(acquired_only(kept, carried), fn ->
+        searched = Internal.apply_params(validator.estimator, param_map)
 
-      case fit(searched, train) do
-        {:ok, model} ->
-          score_candidate(validator, model, validation, metrics, kept, carried)
+        case fit(searched, train) do
+          {:ok, model} ->
+            score_candidate(validator, model, validation, metrics, kept, carried)
 
-        {:error, error} ->
-          {:halt, {:error, error, kept}}
-      end
+          {:error, error} ->
+            {:halt, {:error, error, kept}}
+        end
+      end)
     end)
   end
 
@@ -599,16 +605,15 @@ defmodule Latu.ML do
   # it goes back the moment its metric is read; a 5-by-6 search then holds one at a time rather
   # than thirty. `collect_sub_models: true` keeps them for the caller. Only what this fit acquired
   # is ever released — a stage the caller handed in already fitted is theirs and stays. An
-  # evaluator that raises rather than returns (a param kind refused at encoding) releases the same
-  # acquisitions a returned error would — this candidate and the fold's kept — and re-raises.
+  # evaluator that raises rather than returns (a param kind refused at encoding) releases this
+  # candidate, as a returned error would; the fold's kept is `score_grid/3`'s to give back.
   defp score_candidate(validator, model, validation, metrics, kept, carried) do
-    try do
-      evaluate(validator.evaluator, transform(model, validation))
-    catch
-      kind, reason ->
-        release_acquired([model | kept], carried)
-        :erlang.raise(kind, reason, __STACKTRACE__)
-    else
+    scored =
+      Cache.guard(acquired_only([model], carried), fn ->
+        evaluate(validator.evaluator, transform(model, validation))
+      end)
+
+    case scored do
       {:ok, metric} ->
         cond do
           not finite?(metric) ->

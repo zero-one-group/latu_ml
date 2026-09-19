@@ -1303,3 +1303,70 @@ returning the first error. The single-command optimization stays within a sessio
 registry's one nested param (`array<array<double>>`). The encoder wrote it, but `element_type/1`
 only knew scalar kinds, so a saved Bucketizer would not load. It now recurses to the depth the
 encoder writes.
+
+## 2026-09-18 — Third review: a search owns what it acquired, and nothing else
+
+A third review (2026-09-18) found five things in tuning and cache ownership. Four are the
+pipeline-fit rule above carried to the sites it had not reached; one is a policy.
+
+**A search releases only what a candidate fit.** The pipeline fix tracked acquired models apart
+from carried ones, and the search did not: every discarded candidate released
+`cached_models(model)`, which for a pipeline estimator includes a stage the caller handed in
+already fitted. So tuning such a pipeline deleted the caller's model on the first discard, and the
+winner's refit then failed on it. `carried_refs/1` is the estimator's cached refs before any fit,
+and every release in the search — a discarded candidate, a halted fold, an unwinding error — goes
+through `release_acquired/2`, which subtracts them. The same rule at every site, because a
+one-site fix is how this one was missed.
+
+**Cleanup covers a raise in the search too.** `scored/3` unpersists the fold's two frames in an
+`after`; `score_candidate/6` and `score_folds/2` catch a raise, release the fold's acquisitions
+and re-raise with the original stacktrace. Before, a param kind refused at encoding left the
+candidate cached and both frames persisted.
+
+**A non-finite fold metric is a refusal, not a number.** R² on a constant target is `NaN`, which
+the protocol carries as `:nan` since a BEAM float cannot be one, and it reached `Enum.sum/1` in
+the fold average as an `ArithmeticError`. PySpark averages it with `np.mean` and picks the winner
+with `np.argmax`, which returns the first `NaN`'s index, so a search there completes and names a
+`NaN` candidate as best. Latu stops instead: `fit/2` returns a `Latu.Error` naming the metric and
+pointing at `evaluate/2`, and releases what the search had collected. A deliberate deviation,
+recorded in `docs/deviations.md`.
+
+**A search result records what it owns.** Fitted, it owns its acquisitions — the winner and any
+collected sub-models — and never a carried stage. Loaded, it owns everything it read: the winner,
+the sub-models, and the estimator's own cached stages, which a pipeline estimator can carry and
+which `delete/1` and the load-failure paths both used to forget. `owned` is a field on both search
+models, `Cache.owned_models/1` reads it, and `delete/1` frees exactly that.
+
+**`delete/1` groups by `Latu.Session.identity/1`.** 0.3.1 grouped by `session_id`, which is unique
+per server and not per client, so two servers handed the same explicit id were batched onto one
+connection and the second's model survived. Latu 0.8.0 made the identity public for this; it is
+why the `latu` requirement is `~> 0.8`.
+
+## 2026-09-19 — Fourth review: each level releases what it acquired, and only that
+
+A fourth review found three P2s and no new class: a resource acquired at one step and not yet
+protected when the next step failed. Round two fixed the shape in the pipeline fold and round
+three in the search; each fix guarded the site it was reported at. The rule is now written once,
+in `Latu.ML.Cache`, and every fold and loader follows it.
+
+**The rule.** A level releases exactly what it acquired, and the level above releases only what it
+held before calling down. Nothing reaches across the boundary, so nested releases never delete a
+ref twice. `Cache.guard/2` runs a function and, on a raise, releases what that level holds and
+re-raises with the original stacktrace; `Cache.owning/2` does the same for a returned error too.
+The search paths take `guard/2`, because their returned errors already travel up an accumulator to
+one release; the loaders take `owning/2`, because their `with` chains return them.
+
+**Where it is applied.** In the search: `score_folds/2` holds the folds finished so far,
+`score_grid/3` the sub-models this fold has kept (F1: a raise from `apply_params/2` or `fit/2` on
+a later candidate had nothing holding them), `score_candidate/6` the candidate it is scoring, and
+`refit/4` everything the folds kept while the winner refits. In a pipeline: the fold holds what
+earlier stages acquired, and `fit_stage/4` holds the stage it just fitted while transforming its
+output for the next (F3: a nested pipeline's models existed before the fold recorded them). In a
+load: `load_search/4` holds the estimator through evaluator, grid decoding, winner and sub-models
+(F2: a winner that would not read left the estimator's fitted stage cached), and `load_searched/6`
+holds the winner through the sub-models; `load_evaluator/3` folded into it.
+
+**The tests fail a step right after each acquisition**, not only the last one: the second
+candidate of a grid, the winner of a saved search and then its evaluator, a transformer carried by
+a nested pipeline. A saved part is spoiled from the client by overwriting its `metadata` with a
+one-row text write, so the test needs no filesystem access to the server.

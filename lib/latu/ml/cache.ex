@@ -40,6 +40,35 @@ defmodule Latu.ML.Cache do
   def owned_models(%TrainValidationSplitModel{owned: owned}) when is_list(owned), do: owned
   def owned_models(other), do: cached_models(other)
 
+  # The rule every fold and loader follows: a level releases exactly what it acquired, and the
+  # level above releases only what it held before calling down. Nothing reaches across the
+  # boundary, so nested releases never delete a ref twice. `docs/decisions.md`, 2026-09-19.
+  #
+  # `guard/2` covers a raise, for the search paths whose returned errors already travel up an
+  # accumulator; `owning/2` covers a returned error too, for the loaders whose `with` chains
+  # return them. Both take what the level holds — models, or the stages and estimators that hold
+  # them — and re-raise with the original stacktrace.
+  def guard(held, fun) do
+    try do
+      fun.()
+    catch
+      kind, reason ->
+        release(collected(held))
+        :erlang.raise(kind, reason, __STACKTRACE__)
+    end
+  end
+
+  def owning(held, fun) do
+    case guard(held, fun) do
+      {:ok, _value} = ok ->
+        ok
+
+      {:error, _error} = error ->
+        release(collected(held))
+        error
+    end
+  end
+
   # Collect in order, or give back what was already cached and answer with the first error.
   # A `Read` caches, so every error path below one owns what it read. That decision lives here
   # rather than at each fold, because five copies of it is how the sixth came to forget.
