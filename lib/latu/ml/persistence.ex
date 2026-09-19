@@ -318,50 +318,36 @@ defmodule Latu.ML.Persistence do
     opts = Keyword.validate!(opts, sub_models: false)
 
     with {:ok, metadata} <- Layout.read_metadata(session, path),
-         {:ok, estimator} <- load_stage(session, Layout.part_path(path, :estimator)),
-         {:ok, evaluator} <- load_evaluator(session, path, estimator) do
-      params = Map.get(metadata, "paramMap", %{})
+         {:ok, estimator} <- load_stage(session, Layout.part_path(path, :estimator)) do
+      # The estimator is cached from here — a pipeline estimator can carry a fitted stage — and a
+      # caller left holding an error owns none of it, whichever part below refuses or raises.
+      # `Cache.owning/2` is the rule; the winner's own level is `load_searched/6`.
+      Cache.owning([estimator], fn ->
+        with {:ok, evaluator} <- load_stage(session, Layout.part_path(path, :evaluator)) do
+          params = Map.get(metadata, "paramMap", %{})
+          names = name_of(estimator, evaluator)
+          validator = rebuilt_search(kind, metadata["uid"], estimator, evaluator, params, names)
 
-      names = name_of(estimator, evaluator)
-      validator = rebuilt_search(kind, metadata["uid"], estimator, evaluator, params, names)
-
-      if Layout.fitted?(kind) do
-        load_searched(session, kind, path, validator, metadata, opts)
-      else
-        {:ok, validator}
-      end
+          if Layout.fitted?(kind) do
+            load_searched(session, kind, path, validator, metadata, opts)
+          else
+            {:ok, validator}
+          end
+        end
+      end)
     end
   end
 
-  # The estimator is cached by the time the evaluator is asked for — a pipeline estimator can
-  # carry a fitted stage — so a refusal here gives back what the estimator brought.
-  defp load_evaluator(session, path, estimator) do
-    case load_stage(session, Layout.part_path(path, :evaluator)) do
-      {:ok, evaluator} ->
-        {:ok, evaluator}
-
-      {:error, error} ->
-        Cache.release(Cache.collected([estimator]))
-        {:error, error}
-    end
-  end
-
+  # The winner is cached from the moment it loads; a sub-models refusal (`sub_models: true`
+  # against a directory saved without them, most likely) gives it back. The estimator's stages are
+  # the level above's.
   defp load_searched(session, kind, path, validator, metadata, opts) do
     with {:ok, best_model} <- load_stage(session, Layout.part_path(path, :best_model)) do
-      # The winner is already cached by the time the sub-models are asked for, so a refusal
-      # here — `sub_models: true` against a directory saved without them, most likely — has to
-      # give it back. A `Read` caches, so every error path below one owns what it read — the
-      # others are `load_evaluator/3`, `load_stages/3`, `read_folds/4` and `read_fold/4`.
-      case load_sub_models(session, kind, path, validator, metadata, opts) do
-        {:ok, sub_models} ->
-          {:ok, searched_from(kind, session, validator, metadata, best_model, sub_models)}
-
-        {:error, error} ->
-          # The winner and the estimator's stages are both cached by now, and a caller left
-          # holding an error owns neither, so both go back.
-          Cache.release(Cache.collected([best_model, validator.estimator]))
-          {:error, error}
-      end
+      Cache.owning([best_model], fn ->
+        with {:ok, subs} <- load_sub_models(session, kind, path, validator, metadata, opts) do
+          {:ok, searched_from(kind, session, validator, metadata, best_model, subs)}
+        end
+      end)
     end
   end
 

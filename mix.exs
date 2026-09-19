@@ -1,7 +1,7 @@
 defmodule Latu.ML.MixProject do
   use Mix.Project
 
-  @version "0.4.0"
+  @version "0.4.1"
   @source_url "https://github.com/zero-one-group/latu_ml"
 
   def project do
@@ -40,8 +40,7 @@ defmodule Latu.ML.MixProject do
 
   defp deps do
     [
-      # The Latu this was built against: `Summarizer` reads its struct with
-      # `Latu.Column.get_field/2`, which is 0.7.0.
+      # The Latu floor: a session's identity is `Latu.Session.identity/1`, new in 0.8.0.
       {:latu, "~> 0.8"},
       # Hard, not optional: a fitted model's attributes come back as tensors and there is no
       # useful surface here without them. Roadmap section 6.
